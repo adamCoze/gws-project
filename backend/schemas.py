@@ -144,6 +144,9 @@ class EmailConfigOut(BaseModel):
     email_address: str
     imap_host: str
     imap_port: int
+    smtp_host: str
+    smtp_port: int
+    use_tls: bool
     username: str
     is_active: bool
     last_check_at: Optional[datetime] = None
@@ -158,6 +161,9 @@ class EmailConfigCreate(BaseModel):
     email_address: str
     imap_host: str = "imap.qiye.aliyun.com"
     imap_port: int = 993
+    smtp_host: str = "smtp.qiye.aliyun.com"
+    smtp_port: int = 465
+    use_tls: bool = True
     username: str
     password: str
     check_interval: int = 5
@@ -168,6 +174,9 @@ class EmailConfigUpdate(BaseModel):
     email_address: Optional[str] = None
     imap_host: Optional[str] = None
     imap_port: Optional[int] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    use_tls: Optional[bool] = None
     username: Optional[str] = None
     password: Optional[str] = None
     check_interval: Optional[int] = None

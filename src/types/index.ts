@@ -116,6 +116,9 @@ export interface EmailConfig {
   email_address: string;
   imap_host: string;
   imap_port: number;
+  smtp_host: string;
+  smtp_port: number;
+  use_tls: boolean;
   username: string;
   password: string;
   is_active: boolean;
