@@ -72,18 +72,18 @@ const EmailConfigPage: React.FC = () => {
           <Form.Item name="email_address" label="邮箱地址" rules={[{ required: true, type: 'email' }]}><Input /></Form.Item>
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true }]}><Input.Password /></Form.Item>
-          <Divider orientation="left">IMAP 配置（收信）</Divider>
+          <Divider>IMAP 配置（收信）</Divider>
           <Space size="large" style={{ width: '100%' }}>
             <Form.Item name="imap_host" label="IMAP主机" rules={[{ required: true }]} initialValue="imap.qiye.aliyun.com"><Input style={{ width: 220 }} /></Form.Item>
             <Form.Item name="imap_port" label="IMAP端口" rules={[{ required: true }]} initialValue={993}><InputNumber min={1} max={65535} style={{ width: 100 }} /></Form.Item>
           </Space>
-          <Divider orientation="left">SMTP 配置（发信）</Divider>
+          <Divider>SMTP 配置（发信）</Divider>
           <Space size="large" style={{ width: '100%' }}>
             <Form.Item name="smtp_host" label="SMTP主机" rules={[{ required: true }]} initialValue="smtp.qiye.aliyun.com"><Input style={{ width: 220 }} /></Form.Item>
             <Form.Item name="smtp_port" label="SMTP端口" rules={[{ required: true }]} initialValue={465}><InputNumber min={1} max={65535} style={{ width: 100 }} /></Form.Item>
             <Form.Item name="use_tls" label="使用TLS" valuePropName="checked" initialValue={true}><Switch /></Form.Item>
           </Space>
-          <Divider orientation="left">其他配置</Divider>
+          <Divider>其他配置</Divider>
           <Space size="large" style={{ width: '100%' }}>
             <Form.Item name="check_interval" label="检查间隔(分钟)" rules={[{ required: true }]} initialValue={5}><InputNumber min={1} max={60} style={{ width: 120 }} /></Form.Item>
             <Form.Item name="is_active" label="启用" valuePropName="checked" initialValue={true}><Switch /></Form.Item>

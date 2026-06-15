@@ -63,4 +63,6 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("DEPLOY_RUN_PORT", "8000"))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # 生产环境不使用 reload
+    reload = os.getenv("COZE_PROJECT_ENV") != "PROD"
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=reload)
