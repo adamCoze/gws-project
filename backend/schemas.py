@@ -10,11 +10,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 # Department
 class DepartmentOut(BaseModel):
     id: int
@@ -45,6 +40,12 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: Optional[UserOut] = None
 
 
 class UserCreate(BaseModel):

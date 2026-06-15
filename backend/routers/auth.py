@@ -20,7 +20,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账户已被禁用")
     access_token = create_access_token(data={"sub": str(user.id)})
-    return TokenResponse(access_token=access_token)
+    return TokenResponse(access_token=access_token, user=UserOut.model_validate(user))
 
 
 @router.get("/me", response_model=UserOut)
