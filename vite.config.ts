@@ -15,6 +15,7 @@ export default defineConfig({
     watch: {
       usePolling: true,
       interval: 100,
-    }
+    },
   },
+  // React 插件通过动态加载，避免 server 端加载错误
 });

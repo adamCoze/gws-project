@@ -1,5 +1,5 @@
 [project]
-requires = [ "nodejs-24" ]
+requires = [ "nodejs-24", "python-3.11" ]
 template = "vite"
 version = "0.0.27"
 appliedPatches = [ ]
