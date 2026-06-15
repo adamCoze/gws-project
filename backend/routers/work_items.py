@@ -7,7 +7,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import WorkItem, User, StatusLog, WorkItemStatus, RoleType
+from models import WorkItem, User, StatusChangeLog, WorkItemStatus, RoleType
 from schemas import WorkItemOut, WorkItemCreate, WorkItemUpdate, StatusUpdateRequest
 from auth import get_current_user, require_role, ROLE_LEVELS
 
@@ -123,8 +123,8 @@ async def update_status(
     old_status = item.status
     new_status = WorkItemStatus(data.status)
     item.status = new_status
-    # 记录日志
-    log = StatusLog(
+    # 记录状态变更日志
+    log = StatusChangeLog(
         work_item_id=item.id,
         old_status=old_status,
         new_status=new_status,

@@ -123,8 +123,8 @@ class StatusUpdateRequest(BaseModel):
     remark: str = ""
 
 
-# StatusLog
-class StatusLogOut(BaseModel):
+# StatusChangeLog
+class StatusChangeLogOut(BaseModel):
     id: int
     work_item_id: int
     old_status: str
@@ -172,6 +172,57 @@ class EmailConfigUpdate(BaseModel):
     password: Optional[str] = None
     check_interval: Optional[int] = None
     is_active: Optional[bool] = None
+
+
+# EmailLog
+class EmailLogOut(BaseModel):
+    id: int
+    message_id: str
+    subject: Optional[str] = None
+    from_addr: Optional[str] = None
+    received_at: Optional[datetime] = None
+    process_result: str
+    retry_count: int
+    error_message: Optional[str] = None
+    work_item_id: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class EmailLogCreate(BaseModel):
+    message_id: str
+    subject: Optional[str] = None
+    from_addr: Optional[str] = None
+    received_at: Optional[datetime] = None
+    process_result: str
+    retry_count: int = 0
+    error_message: Optional[str] = None
+    work_item_id: Optional[int] = None
+
+
+# SystemConfig
+class SystemConfigOut(BaseModel):
+    id: int
+    config_key: str
+    config_value: Optional[str] = None
+    description: Optional[str] = None
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SystemConfigCreate(BaseModel):
+    config_key: str
+    config_value: Optional[str] = None
+    description: Optional[str] = None
+
+
+class SystemConfigUpdate(BaseModel):
+    config_value: Optional[str] = None
+    description: Optional[str] = None
 
 
 # Holiday

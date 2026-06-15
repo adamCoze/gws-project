@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage';
 import KanbanPage from './pages/KanbanPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
 import EmailConfigPage from './pages/admin/EmailConfigPage';
+import EmailLogPage from './pages/admin/EmailLogPage';
 import HolidayConfigPage from './pages/admin/HolidayConfigPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
@@ -37,6 +38,7 @@ const AppRoutes: React.FC = () => {
         <Route path="kanban" element={<KanbanPage />} />
         <Route path="admin/users" element={<ProtectedRoute requiredLevel={5}><UserManagementPage /></ProtectedRoute>} />
         <Route path="admin/email" element={<ProtectedRoute requiredLevel={5}><EmailConfigPage /></ProtectedRoute>} />
+        <Route path="admin/email-logs" element={<ProtectedRoute requiredLevel={2}><EmailLogPage /></ProtectedRoute>} />
         <Route path="admin/holidays" element={<ProtectedRoute requiredLevel={4}><HolidayConfigPage /></ProtectedRoute>} />
         <Route path="admin/work-items" element={<ProtectedRoute requiredLevel={2}><WorkItemManagementPage /></ProtectedRoute>} />
         <Route path="admin/status-logs" element={<ProtectedRoute requiredLevel={2}><StatusLogPage /></ProtectedRoute>} />

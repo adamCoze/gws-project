@@ -28,6 +28,13 @@ class WorkItemStatus(str, enum.Enum):
     overdue = "overdue"
 
 
+class EmailProcessResult(str, enum.Enum):
+    """邮件处理结果枚举"""
+    SUCCESS = "SUCCESS"
+    AI_FAILED = "AI_FAILED"
+    RETRY = "RETRY"
+
+
 class Department(Base):
     __tablename__ = "departments"
 
@@ -77,11 +84,13 @@ class WorkItem(Base):
 
     department = relationship("Department", back_populates="work_items")
     assignee = relationship("User")
-    status_logs = relationship("StatusLog", back_populates="work_item", order_by="StatusLog.created_at.desc()")
+    status_change_logs = relationship("StatusChangeLog", back_populates="work_item", order_by="StatusChangeLog.created_at.desc()")
+    email_logs = relationship("EmailLog", back_populates="work_item")
 
 
-class StatusLog(Base):
-    __tablename__ = "status_logs"
+class StatusChangeLog(Base):
+    """状态变更日志表"""
+    __tablename__ = "status_change_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
@@ -91,11 +100,12 @@ class StatusLog(Base):
     remark = Column(Text, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    work_item = relationship("WorkItem", back_populates="status_logs")
+    work_item = relationship("WorkItem", back_populates="status_change_logs")
     operator = relationship("User")
 
 
 class EmailConfig(Base):
+    """邮箱配置表"""
     __tablename__ = "email_configs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -110,7 +120,37 @@ class EmailConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class EmailLog(Base):
+    """邮件处理日志表"""
+    __tablename__ = "email_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    message_id = Column(String(500), nullable=False, index=True, comment="邮件唯一ID")
+    subject = Column(String(500), nullable=True, comment="邮件主题")
+    from_addr = Column(String(200), nullable=True, comment="发件人地址")
+    received_at = Column(DateTime, nullable=True, comment="接收时间")
+    process_result = Column(SAEnum(EmailProcessResult), nullable=False, comment="处理结果: SUCCESS/AI_FAILED/RETRY")
+    retry_count = Column(Integer, default=0, comment="重试次数(0-2)")
+    error_message = Column(Text, nullable=True, comment="错误信息")
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=True, comment="关联的工作项ID")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    work_item = relationship("WorkItem", back_populates="email_logs")
+
+
+class SystemConfig(Base):
+    """系统配置表"""
+    __tablename__ = "system_config"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    config_key = Column(String(100), unique=True, nullable=False, index=True, comment="配置键")
+    config_value = Column(Text, nullable=True, comment="配置值")
+    description = Column(String(500), nullable=True, comment="配置描述")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Holiday(Base):
+    """节假日表"""
     __tablename__ = "holidays"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

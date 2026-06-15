@@ -41,6 +41,21 @@ export const STATUS_COLORS: Record<WorkItemStatus, string> = {
   overdue: 'error',
 };
 
+// 邮件处理结果
+export type EmailProcessResult = 'SUCCESS' | 'AI_FAILED' | 'RETRY';
+
+export const EMAIL_PROCESS_RESULT_LABELS: Record<EmailProcessResult, string> = {
+  SUCCESS: '成功',
+  AI_FAILED: 'AI分析失败',
+  RETRY: '重试',
+};
+
+export const EMAIL_PROCESS_RESULT_COLORS: Record<EmailProcessResult, string> = {
+  SUCCESS: 'success',
+  AI_FAILED: 'error',
+  RETRY: 'warning',
+};
+
 // 部门
 export interface Department {
   id: number;
@@ -84,7 +99,7 @@ export interface WorkItem {
 }
 
 // 状态变更日志
-export interface StatusLog {
+export interface StatusChangeLog {
   id: number;
   work_item_id: number;
   old_status: WorkItemStatus;
@@ -107,6 +122,29 @@ export interface EmailConfig {
   last_check_at: string | null;
   check_interval: number;
   created_at: string;
+}
+
+// 邮件处理日志
+export interface EmailLog {
+  id: number;
+  message_id: string;
+  subject: string | null;
+  from_addr: string | null;
+  received_at: string | null;
+  process_result: EmailProcessResult;
+  retry_count: number;
+  error_message: string | null;
+  work_item_id: number | null;
+  created_at: string;
+}
+
+// 系统配置
+export interface SystemConfig {
+  id: number;
+  config_key: string;
+  config_value: string | null;
+  description: string | null;
+  updated_at: string;
 }
 
 // 节假日

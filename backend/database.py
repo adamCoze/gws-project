@@ -58,7 +58,7 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """初始化数据库表"""
-    from models import Department, User, WorkItem, StatusLog, EmailConfig, Holiday  # noqa: F401
+    from models import Department, User, WorkItem, StatusChangeLog, EmailConfig, EmailLog, SystemConfig, Holiday  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     # 创建默认管理员和部门

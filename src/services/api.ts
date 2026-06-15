@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, User, WorkItem, Department, EmailConfig, Holiday, StatusLog, KanbanData } from '../types';
+import type { LoginRequest, LoginResponse, User, WorkItem, Department, EmailConfig, Holiday, StatusChangeLog, EmailLog, SystemConfig, KanbanData } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -88,9 +88,25 @@ export const holidayApi = {
   delete: (id: number) => api.delete(`/holidays/${id}`),
 };
 
-// Status Log API
-export const statusLogApi = {
-  list: (workItemId?: number) => api.get<StatusLog[]>('/status-logs', { params: { work_item_id: workItemId } }),
+// Status Change Log API
+export const statusChangeLogApi = {
+  list: (workItemId?: number) => api.get<StatusChangeLog[]>('/status-change-logs', { params: { work_item_id: workItemId } }),
+};
+
+// Email Log API
+export const emailLogApi = {
+  list: (params?: { process_result?: string; limit?: number; offset?: number }) =>
+    api.get<EmailLog[]>('/email-logs', { params }),
+  get: (id: number) => api.get<EmailLog>(`/email-logs/${id}`),
+};
+
+// System Config API
+export const systemConfigApi = {
+  list: () => api.get<SystemConfig[]>('/system-config'),
+  get: (key: string) => api.get<SystemConfig>(`/system-config/${key}`),
+  create: (data: Partial<SystemConfig>) => api.post<SystemConfig>('/system-config', data),
+  update: (key: string, data: Partial<SystemConfig>) => api.put<SystemConfig>(`/system-config/${key}`, data),
+  delete: (key: string) => api.delete(`/system-config/${key}`),
 };
 
 export default api;

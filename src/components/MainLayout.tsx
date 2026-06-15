@@ -12,6 +12,7 @@ import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from './AuthProvider';
@@ -41,6 +42,7 @@ const MainLayout: React.FC = () => {
             children: [
               ...(userLevel >= 2 ? [{ key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' }] : []),
               ...(userLevel >= 2 ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
+              ...(userLevel >= 2 ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
               ...(userLevel >= 4 ? [{ key: '/admin/holidays', icon: <CalendarOutlined />, label: '节假日配置' }] : []),
               ...(userLevel >= 5 ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
               ...(userLevel >= 5 ? [{ key: '/admin/email', icon: <MailOutlined />, label: '邮箱配置' }] : []),

@@ -11,13 +11,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
-from models import EmailConfig, WorkItem, Department, User
+from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult
 from services.ai_service import analyze_email_with_ai
 
 logger = logging.getLogger(__name__)
 
 _monitor_task: Optional[asyncio.Task] = None
 _running = False
+MAX_RETRY_COUNT = 2
 
 
 def _decode_str(s) -> str:
@@ -81,10 +82,11 @@ async def _check_email_config(config: EmailConfig):
                 subject = _decode_str(msg.get("Subject"))
                 from_addr = _decode_str(msg.get("From"))
                 date_str = msg.get("Date", "")
+                message_id = msg.get("Message-ID", f"unknown-{datetime.utcnow().timestamp()}")
                 body = _get_email_body(msg)
 
                 if subject and body:
-                    await _process_email(config, subject, from_addr, date_str, body)
+                    await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body)
 
         mail.logout()
 
@@ -112,16 +114,76 @@ def _imap_connect(config: EmailConfig) -> Optional[imaplib.IMAP4_SSL]:
         return None
 
 
-async def _process_email(config: EmailConfig, subject: str, from_addr: str, date_str: str, body: str):
-    """处理邮件：AI分析并入库"""
-    try:
-        # 使用 AI 分析邮件内容
-        analysis = await analyze_email_with_ai(subject, body)
-        if not analysis:
-            logger.warning(f"AI分析失败，跳过邮件: {subject}")
+async def _process_email_with_retry(
+    config: EmailConfig, 
+    message_id: str, 
+    subject: str, 
+    from_addr: str, 
+    date_str: str, 
+    body: str
+):
+    """处理邮件，支持重试机制"""
+    retry_count = 0
+    
+    while retry_count <= MAX_RETRY_COUNT:
+        result = await _process_email(message_id, subject, from_addr, date_str, body, retry_count)
+        
+        if result == EmailProcessResult.SUCCESS:
             return
+        elif result == EmailProcessResult.AI_FAILED:
+            retry_count += 1
+            if retry_count <= MAX_RETRY_COUNT:
+                logger.info(f"AI分析失败，第 {retry_count} 次重试: {subject}")
+                await asyncio.sleep(2)  # 等待2秒后重试
+            else:
+                logger.warning(f"AI分析失败，已达最大重试次数: {subject}")
+                return
+        else:
+            # RETRY 状态，继续重试
+            retry_count += 1
+            if retry_count <= MAX_RETRY_COUNT:
+                logger.info(f"处理失败，第 {retry_count} 次重试: {subject}")
+                await asyncio.sleep(2)
+            else:
+                logger.warning(f"处理失败，已达最大重试次数: {subject}")
+                return
 
-        async with async_session() as db:
+
+async def _process_email(
+    message_id: str, 
+    subject: str, 
+    from_addr: str, 
+    date_str: str, 
+    body: str,
+    retry_count: int = 0
+) -> EmailProcessResult:
+    """处理邮件：AI分析并入库，返回处理结果"""
+    async with async_session() as db:
+        try:
+            # 检查是否已处理过该邮件
+            existing = await db.execute(select(EmailLog).where(EmailLog.message_id == message_id))
+            if existing.scalar_one_or_none():
+                logger.info(f"邮件已处理过，跳过: {message_id}")
+                return EmailProcessResult.SUCCESS
+
+            # 使用 AI 分析邮件内容
+            analysis = await analyze_email_with_ai(subject, body)
+            if not analysis:
+                # 记录失败日志
+                log = EmailLog(
+                    message_id=message_id,
+                    subject=subject,
+                    from_addr=from_addr,
+                    received_at=datetime.utcnow(),
+                    process_result=EmailProcessResult.AI_FAILED,
+                    retry_count=retry_count,
+                    error_message="AI分析返回空结果",
+                    work_item_id=None,
+                )
+                db.add(log)
+                await db.commit()
+                return EmailProcessResult.AI_FAILED
+
             # 查找或创建部门
             dept_name = analysis.get("department", "运营部")
             result = await db.execute(select(Department).where(Department.name == dept_name))
@@ -149,11 +211,46 @@ async def _process_email(config: EmailConfig, subject: str, from_addr: str, date
                 email_date=datetime.utcnow(),
             )
             db.add(item)
+            await db.flush()
+
+            # 记录成功日志
+            log = EmailLog(
+                message_id=message_id,
+                subject=subject,
+                from_addr=from_addr,
+                received_at=datetime.utcnow(),
+                process_result=EmailProcessResult.SUCCESS,
+                retry_count=retry_count,
+                error_message=None,
+                work_item_id=item.id,
+            )
+            db.add(log)
             await db.commit()
             logger.info(f"成功创建工作项: {item.title}")
+            return EmailProcessResult.SUCCESS
 
-    except Exception as e:
-        logger.error(f"处理邮件失败: {e}")
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"处理邮件失败: {error_msg}")
+            
+            # 记录失败日志
+            try:
+                log = EmailLog(
+                    message_id=message_id,
+                    subject=subject,
+                    from_addr=from_addr,
+                    received_at=datetime.utcnow(),
+                    process_result=EmailProcessResult.RETRY,
+                    retry_count=retry_count,
+                    error_message=error_msg,
+                    work_item_id=None,
+                )
+                db.add(log)
+                await db.commit()
+            except Exception as log_error:
+                logger.error(f"记录日志失败: {log_error}")
+            
+            return EmailProcessResult.RETRY
 
 
 async def _monitor_loop():
