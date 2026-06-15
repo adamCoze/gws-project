@@ -17,12 +17,12 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 ROLE_LEVELS = {
-    RoleType.staff: 1,
-    RoleType.manager: 2,
-    RoleType.district_manager: 3,
-    RoleType.regulator: 3,
-    RoleType.president: 4,
-    RoleType.admin: 5,
+    RoleType.staff: 1,              # 专员
+    RoleType.manager: 2,            # 经理
+    RoleType.district_manager: 3,   # 区总
+    RoleType.regulator: 4,          # 规管（可看机密）
+    RoleType.president: 5,          # 总裁
+    RoleType.admin: 6,              # 管理员
 }
 
 
