@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("TOKEN_EXPIRE_MINUTES", "1440"))
 
-    # DeepSeek AI
-    DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
-    DEEPSEEK_API_URL: str = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
-    DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+    # Coze AI (邮件分析)
+    COZE_API_TOKEN: str = os.getenv("COZE_API_TOKEN", "")
+    COZE_BOT_ID: str = os.getenv("COZE_BOT_ID", "")
+    COZE_API_BASE: str = os.getenv("COZE_API_BASE", "https://api.coze.cn")
 
     # 邮件检查间隔（分钟）
     EMAIL_CHECK_INTERVAL: int = int(os.getenv("EMAIL_CHECK_INTERVAL", "5"))

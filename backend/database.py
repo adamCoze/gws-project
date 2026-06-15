@@ -74,13 +74,10 @@ async def _seed_defaults():
     async with async_session() as session:
         # 默认部门
         default_depts = [
-            ("总裁办", "ZCB"),
-            ("规划管理部", "GHGL"),
-            ("区域一部", "QY1"),
-            ("区域二部", "QY2"),
-            ("运营部", "YYB"),
-            ("财务部", "CWB"),
-            ("人力资源部", "RLZY"),
+            ("人事/商务部", "RS"),
+            ("财审/投资部", "CS"),
+            ("行政/产品部", "XZ"),
+            ("法务/媒体部", "FW"),
         ]
         for name, code in default_depts:
             result = await session.execute(select(Department).where(Department.name == name))

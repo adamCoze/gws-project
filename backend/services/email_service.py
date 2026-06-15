@@ -117,19 +117,19 @@ def _imap_connect(config: EmailConfig) -> Optional[imaplib.IMAP4_SSL]:
 
 
 async def _process_email_with_retry(
-    config: EmailConfig, 
-    message_id: str, 
-    subject: str, 
-    from_addr: str, 
-    date_str: str, 
+    config: EmailConfig,
+    message_id: str,
+    subject: str,
+    from_addr: str,
+    date_str: str,
     body: str
 ):
     """处理邮件，支持重试机制"""
     retry_count = 0
-    
+
     while retry_count <= MAX_RETRY_COUNT:
         result = await _process_email(message_id, subject, from_addr, date_str, body, retry_count)
-        
+
         if result == EmailProcessResult.SUCCESS:
             return
         elif result == EmailProcessResult.AI_FAILED:
@@ -152,10 +152,10 @@ async def _process_email_with_retry(
 
 
 async def _process_email(
-    message_id: str, 
-    subject: str, 
-    from_addr: str, 
-    date_str: str, 
+    message_id: str,
+    subject: str,
+    from_addr: str,
+    date_str: str,
     body: str,
     retry_count: int = 0
 ) -> EmailProcessResult:
@@ -187,7 +187,7 @@ async def _process_email(
                 return EmailProcessResult.AI_FAILED
 
             # 查找或创建部门
-            dept_name = analysis.get("department", "运营部")
+            dept_name = analysis.get("department", "行政/产品部")
             result = await db.execute(select(Department).where(Department.name == dept_name))
             dept = result.scalar_one_or_none()
             if not dept:
@@ -234,7 +234,7 @@ async def _process_email(
         except Exception as e:
             error_msg = str(e)
             logger.error(f"处理邮件失败: {error_msg}")
-            
+
             # 记录失败日志
             try:
                 log = EmailLog(
@@ -251,7 +251,7 @@ async def _process_email(
                 await db.commit()
             except Exception as log_error:
                 logger.error(f"记录日志失败: {log_error}")
-            
+
             return EmailProcessResult.RETRY
 
 
