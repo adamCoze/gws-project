@@ -87,6 +87,8 @@ async def _check_email_config(config: EmailConfig):
 
                 if subject and body:
                     await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body)
+                    # 标记邮件为已读
+                    mail.store(eid, '+FLAGS', '\\Seen')
 
         mail.logout()
 
