@@ -10,15 +10,23 @@ const backendPort = 8000;
 router.use('/api', (req, res) => {
   const body = JSON.stringify(req.body);
   
+  // 复制原始请求的 headers，但排除 host
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Content-Length': String(Buffer.byteLength(body)),
+  };
+  
+  // 传递 Authorization header
+  if (req.headers.authorization) {
+    headers['Authorization'] = req.headers.authorization;
+  }
+  
   const options: http.RequestOptions = {
     hostname: backendHost,
     port: backendPort,
     path: req.originalUrl,
     method: req.method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Content-Length': Buffer.byteLength(body),
-    },
+    headers,
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
