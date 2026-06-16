@@ -11,49 +11,116 @@ import EmailLogPage from './pages/admin/EmailLogPage';
 import HolidayConfigPage from './pages/admin/HolidayConfigPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
+import type { RoleType } from './types';
 
-const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredLevel?: number }> = ({
-  children,
-  requiredLevel = 0,
-}) => {
-  const { user, isAuthenticated } = useAuth();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
-  if (user && requiredLevel > 0) {
-    const { ROLE_LEVELS } = require('./types');
-    const userLevel = ROLE_LEVELS[user.role as keyof typeof ROLE_LEVELS] || 0;
-    if (userLevel < requiredLevel) return <Navigate to="/dashboard" replace />;
+// 内联 ROLE_LEVELS 以避免 Vite 构建时产生 require() 调用
+const ROLE_LEVELS: Record<RoleType, number> = {
+  staff: 1,
+  manager: 2,
+  district_manager: 3,
+  regulator: 4,
+  president: 5,
+  admin: 6,
+};
+
+const ProtectedRoute: React.FC<{ children: React.ReactNode; minLevel?: number }> = ({ children, minLevel = 1 }) => {
+  const { isAuthenticated, user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>加载中...</div>;
   }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user && minLevel > 1) {
+    const userLevel = ROLE_LEVELS[user.role as RoleType] || 0;
+    if (userLevel < minLevel) {
+      return <Navigate to="/dashboard" replace />;
+    }
+  }
+
   return <>{children}</>;
 };
 
 const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useAuth();
-
   return (
     <Routes>
-      <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
-      <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <MainLayout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="kanban" element={<KanbanPage />} />
-        <Route path="admin/users" element={<ProtectedRoute requiredLevel={5}><UserManagementPage /></ProtectedRoute>} />
-        <Route path="admin/email" element={<ProtectedRoute requiredLevel={5}><EmailConfigPage /></ProtectedRoute>} />
-        <Route path="admin/email-logs" element={<ProtectedRoute requiredLevel={2}><EmailLogPage /></ProtectedRoute>} />
-        <Route path="admin/holidays" element={<ProtectedRoute requiredLevel={4}><HolidayConfigPage /></ProtectedRoute>} />
-        <Route path="admin/work-items" element={<ProtectedRoute requiredLevel={2}><WorkItemManagementPage /></ProtectedRoute>} />
-        <Route path="admin/status-logs" element={<ProtectedRoute requiredLevel={2}><StatusLogPage /></ProtectedRoute>} />
+        <Route
+          path="admin/users"
+          element={
+            <ProtectedRoute minLevel={5}>
+              <UserManagementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/email"
+          element={
+            <ProtectedRoute minLevel={5}>
+              <EmailConfigPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/email-logs"
+          element={
+            <ProtectedRoute minLevel={2}>
+              <EmailLogPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/holidays"
+          element={
+            <ProtectedRoute minLevel={4}>
+              <HolidayConfigPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/work-items"
+          element={
+            <ProtectedRoute minLevel={2}>
+              <WorkItemManagementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/status-logs"
+          element={
+            <ProtectedRoute minLevel={2}>
+              <StatusLogPage />
+            </ProtectedRoute>
+          }
+        />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 };
 
-const App: React.FC = () => (
-  <BrowserRouter>
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  </BrowserRouter>
-);
+const App: React.FC = () => {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+};
 
 export default App;
