@@ -38,7 +38,7 @@ def _decode_str(s) -> str:
 
 
 def _get_email_body(msg) -> str:
-    """提取邮件正文"""
+    """提取邮件正文（包括转发邮件的转发体）"""
     body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -59,6 +59,55 @@ def _get_email_body(msg) -> str:
         if payload:
             charset = msg.get_content_charset() or "utf-8"
             body = payload.decode(charset, errors="replace")
+
+    # 解析转发邮件：提取转发体中的完整原始邮件内容
+    body = _extract_forwarded_content(body)
+
+    return body
+
+
+def _extract_forwarded_content(body: str) -> str:
+    """
+    提取转发邮件中的完整原始邮件内容
+
+    转发邮件格式通常是：
+    ---------- Forwarded message ----------
+    From: xxx
+    Date: xxx
+    Subject: xxx
+    To: xxx
+
+    原始邮件内容...
+
+    或者：
+    转发邮件附言...
+
+    -----Original Message-----
+    From: xxx
+    ...
+    """
+    if not body:
+        return body
+
+    # 常见的转发标记
+    forward_markers = [
+        "---------- Forwarded message ----------",
+        "---------- 转发的邮件 ----------",
+        "---------- Forwarded Message ----------",
+        "-----Original Message-----",
+        "----- 原始邮件 -----",
+        "Begin forwarded message:",
+        "转发邮件：",
+    ]
+
+    # 查找转发标记
+    for marker in forward_markers:
+        if marker in body:
+            # 保留转发标记及之后的所有内容（包括转发体）
+            idx = body.find(marker)
+            # 保留标记前的附言 + 转发体
+            return body  # 保留完整内容，让AI去理解
+
     return body
 
 
@@ -81,12 +130,14 @@ async def _check_email_config(config: EmailConfig):
                 msg = email.message_from_bytes(raw_email)
                 subject = _decode_str(msg.get("Subject"))
                 from_addr = _decode_str(msg.get("From"))
+                to_addrs = _decode_str(msg.get("To"))
+                cc_addrs = _decode_str(msg.get("Cc"))
                 date_str = msg.get("Date", "")
                 message_id = msg.get("Message-ID", f"unknown-{datetime.utcnow().timestamp()}")
                 body = _get_email_body(msg)
 
                 if subject and body:
-                    await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body)
+                    await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body, to_addrs, cc_addrs)
                     # 标记邮件为已读
                     mail.store(eid, '+FLAGS', '\\Seen')
 
@@ -122,13 +173,15 @@ async def _process_email_with_retry(
     subject: str,
     from_addr: str,
     date_str: str,
-    body: str
+    body: str,
+    to_addrs: str = "",
+    cc_addrs: str = ""
 ):
     """处理邮件，支持重试机制"""
     retry_count = 0
 
     while retry_count <= MAX_RETRY_COUNT:
-        result = await _process_email(message_id, subject, from_addr, date_str, body, retry_count)
+        result = await _process_email(message_id, subject, from_addr, date_str, body, retry_count, to_addrs, cc_addrs)
 
         if result == EmailProcessResult.SUCCESS:
             return
@@ -157,7 +210,9 @@ async def _process_email(
     from_addr: str,
     date_str: str,
     body: str,
-    retry_count: int = 0
+    retry_count: int = 0,
+    to_addrs: str = "",
+    cc_addrs: str = ""
 ) -> EmailProcessResult:
     """处理邮件：AI分析并入库，返回处理结果"""
     async with async_session() as db:
@@ -168,8 +223,8 @@ async def _process_email(
                 logger.info(f"邮件已处理过，跳过: {message_id}")
                 return EmailProcessResult.SUCCESS
 
-            # 使用 AI 分析邮件内容
-            analysis = await analyze_email_with_ai(subject, body)
+            # 使用 AI 分析邮件内容（传入收件人信息用于责任人兜底）
+            analysis = await analyze_email_with_ai(subject, body, to_addrs, cc_addrs)
             if not analysis:
                 # 记录失败日志
                 log = EmailLog(
