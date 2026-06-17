@@ -33,7 +33,8 @@ async def list_work_items(
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
         selectinload(WorkItem.assignee),
-        selectinload(WorkItem.status_logs),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
     )
 
     if status:
@@ -66,7 +67,8 @@ async def list_my_work_items(
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
         selectinload(WorkItem.assignee),
-        selectinload(WorkItem.status_logs),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
     )
 
     # 查找分配给当前用户的工作项（通过 assignee_id 或 assignee_email_prefix）
@@ -92,7 +94,8 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
     )
@@ -116,7 +119,8 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)
     )
@@ -134,7 +138,8 @@ async def update_work_item(
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
     )
@@ -168,7 +173,8 @@ async def update_work_item(
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)
     )
@@ -188,7 +194,8 @@ async def change_status(
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
     )
@@ -216,7 +223,8 @@ async def change_status(
         .options(
             selectinload(WorkItem.department),
             selectinload(WorkItem.assignee),
-            selectinload(WorkItem.status_logs),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+            selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)
     )
