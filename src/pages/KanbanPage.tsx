@@ -1,112 +1,167 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Select, Tag, Typography, Space, Spin, Empty, message, Tooltip, Badge } from 'antd';
-import { kanbanApi, departmentApi } from '../services/api';
-import type { KanbanData, Department, WorkItem } from '../types';
-import { STATUS_LABELS, STATUS_COLORS } from '../types';
-import dayjs from 'dayjs';
+import React, { useState, useEffect } from 'react';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty } from 'antd';
+import { workItemApi } from '../services/api';
+import type { WorkItem, WorkItemStatus as WorkItemStatusType } from '../types';
 
-const { Title, Text } = Typography;
+const { TextArea } = Input;
+
+const statusColors: Record<string, string> = {
+  pending: 'default',
+  in_progress: 'processing',
+  completed: 'success',
+  overdue: 'error',
+};
+
+const statusLabels: Record<string, string> = {
+  pending: '待处理',
+  in_progress: '进行中',
+  completed: '已完成',
+  overdue: '已逾期',
+};
 
 const KanbanPage: React.FC = () => {
-  const [kanbanData, setKanbanData] = useState<KanbanData[]>([]);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedDept, setSelectedDept] = useState<number | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
+  const [items, setItems] = useState<WorkItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
+  const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
+  const [remark, setRemark] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    loadDepartments();
-  }, []);
-
-  useEffect(() => {
-    loadKanban();
-  }, [selectedDept]);
-
-  const loadDepartments = async () => {
-    try {
-      const res = await departmentApi.list();
-      setDepartments(res.data);
-    } catch {
-      message.error('加载部门失败');
-    }
-  };
-
-  const loadKanban = async () => {
+  const fetchItems = async () => {
     setLoading(true);
     try {
-      const res = await kanbanApi.get(selectedDept ? { department_id: selectedDept } : undefined);
-      setKanbanData(res.data);
+      const data = await workItemApi.list({ page_size: 100 });
+      setItems(data);
     } catch {
-      message.error('加载看板数据失败');
+      message.error('获取工作项失败');
     } finally {
       setLoading(false);
     }
   };
 
-  const renderCard = (item: WorkItem) => (
-    <Card key={item.id} size="small" style={{ marginBottom: 8, borderLeft: item.is_confidential ? '3px solid #ff4d4f' : '3px solid #1677ff' }}>
-      <Tooltip title={item.content}>
-        <Text strong ellipsis style={{ display: 'block', maxWidth: 200 }}>{item.title}</Text>
-      </Tooltip>
-      <Space size={4} style={{ marginTop: 4 }}>
-        <Tag color={item.item_type === 'task' ? 'blue' : 'purple'} style={{ fontSize: 11 }}>
-          {item.item_type === 'task' ? '任务' : '会签'}
-        </Tag>
-        {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
-      </Space>
-      <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>{item.assignee_email_prefix || '未分配'}</Text>
-        {item.due_date && (
-          <Text type={dayjs(item.due_date).isBefore(dayjs()) ? 'danger' : 'secondary'} style={{ fontSize: 12, marginLeft: 8 }}>
-            {dayjs(item.due_date).format('MM/DD')}
-          </Text>
-        )}
-      </div>
-    </Card>
-  );
+  useEffect(() => {
+    fetchItems();
+  }, []);
 
-  const renderColumn = (title: string, items: WorkItem[], color: string) => (
-    <div style={{ flex: 1, minWidth: 250 }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12, gap: 8 }}>
-        <Badge status={color as 'default' | 'processing' | 'success' | 'error'} />
-        <Text strong>{title}</Text>
-        <Tag>{items.length}</Tag>
-      </div>
-      <div style={{ background: '#f5f5f5', borderRadius: 8, padding: 8, minHeight: 200 }}>
-        {items.length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无" /> : items.map(renderCard)}
-      </div>
-    </div>
-  );
+  const openStatusModal = (item: WorkItem) => {
+    setStatusModal({ visible: true, item });
+    setNewStatus(item.status);
+    setRemark('');
+  };
 
-  if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+  const handleStatusChange = async () => {
+    if (!statusModal.item) return;
+    setSubmitting(true);
+    try {
+      await workItemApi.changeStatus(statusModal.item.id, {
+        status: newStatus,
+        remark: remark || undefined,
+      });
+      message.success('状态已更新');
+      setStatusModal({ visible: false });
+      fetchItems();
+    } catch {
+      message.error('状态更新失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getAssigneeName = (item: WorkItem): string => {
+    if (item.assignee?.real_name) return item.assignee.real_name;
+    if (item.assignee_email_prefix) return item.assignee_email_prefix;
+    return '未分配';
+  };
+
+  const columns: Record<WorkItemStatusType, WorkItem[]> = {
+    pending: [],
+    in_progress: [],
+    completed: [],
+    overdue: [],
+  };
+
+  items.forEach((item) => {
+    if (columns[item.status]) {
+      columns[item.status].push(item);
+    }
+  });
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
+  }
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} style={{ margin: 0 }}>工作看板</Title>
-        <Select
-          placeholder="筛选部门"
-          allowClear
-          style={{ width: 200 }}
-          value={selectedDept}
-          onChange={setSelectedDept}
-          options={departments.map((d) => ({ value: d.id, label: d.name }))}
-        />
-      </div>
-      {kanbanData.length === 0 ? (
-        <Empty description="暂无看板数据" />
-      ) : (
-        kanbanData.map((dept) => (
-          <Card key={dept.department_id} title={<Text strong>{dept.department_name}</Text>} style={{ marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 16, overflowX: 'auto' }}>
-              {renderColumn('待处理', dept.pending, 'default')}
-              {renderColumn('进行中', dept.in_progress, 'processing')}
-              {renderColumn('已完成', dept.completed, 'success')}
-              {renderColumn('已逾期', dept.overdue, 'error')}
+    <div>
+      <h2 style={{ marginBottom: 24 }}>工作看板</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        {(Object.keys(columns) as WorkItemStatusType[]).map((status) => (
+          <div key={status}>
+            <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 16 }}>
+              {statusLabels[status]}
+              <Tag style={{ marginLeft: 8 }}>{columns[status].length}</Tag>
             </div>
-          </Card>
-        ))
-      )}
-    </Space>
+            {columns[status].length === 0 ? (
+              <Empty description="暂无" style={{ padding: 20 }} />
+            ) : (
+              columns[status].map((item) => (
+                <Card
+                  key={item.id}
+                  size="small"
+                  style={{ marginBottom: 8, cursor: 'pointer' }}
+                  hoverable
+                  onClick={() => openStatusModal(item)}
+                >
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>{item.title}</div>
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                    {item.department?.name || '未分类'}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#999' }}>
+                    负责人: {getAssigneeName(item)}
+                  </div>
+                  {item.due_date && (
+                    <div style={{ fontSize: 12, color: '#999' }}>
+                      截止: {new Date(item.due_date).toLocaleDateString()}
+                    </div>
+                  )}
+                  <div style={{ marginTop: 4 }}>
+                    <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'}>
+                      {item.item_type === 'cosign' ? '会签' : '任务'}
+                    </Tag>
+                    {item.is_confidential && <Tag color="red">机密</Tag>}
+                  </div>
+                </Card>
+              ))
+            )}
+          </div>
+        ))}
+      </div>
+
+      <Modal
+        title={`变更状态 - ${statusModal.item?.title}`}
+        open={statusModal.visible}
+        onOk={handleStatusChange}
+        onCancel={() => setStatusModal({ visible: false })}
+        confirmLoading={submitting}
+      >
+        <Form layout="vertical">
+          <Form.Item label="新状态">
+            <Select
+              value={newStatus}
+              onChange={setNewStatus}
+              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
+            />
+          </Form.Item>
+          <Form.Item label="备注">
+            <TextArea
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="可选：填写状态变更原因"
+              rows={3}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
   );
 };
 

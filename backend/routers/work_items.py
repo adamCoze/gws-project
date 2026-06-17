@@ -1,151 +1,207 @@
 """工作项路由"""
-from typing import List, Optional
+from datetime import datetime
+from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import WorkItem, User, StatusChangeLog, WorkItemStatus, RoleType
-from schemas import WorkItemOut, WorkItemCreate, WorkItemUpdate, StatusUpdateRequest
-from auth import get_current_user, require_role, ROLE_LEVELS
+from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog
+from schemas import (
+    WorkItemCreate, WorkItemUpdate, WorkItemOut,
+    StatusChangeRequest, StatusChangeLogOut,
+)
 
-router = APIRouter(prefix="/work-items", tags=["工作项"])
-
-
-def _apply_role_filter(query, user: User):
-    """根据角色过滤机密工作项"""
-    user_level = ROLE_LEVELS.get(user.role, 0)
-    if user_level < 4:  # 低于总裁级别不能看机密
-        query = query.where(or_(WorkItem.is_confidential == False, WorkItem.assignee_email_prefix == user.email_prefix))  # noqa: E712
-    return query
+router = APIRouter(prefix="/api/work-items", tags=["work-items"])
 
 
 @router.get("", response_model=List[WorkItemOut])
 async def list_work_items(
+    status: Optional[WorkItemStatus] = None,
     department_id: Optional[int] = None,
-    status: Optional[str] = None,
-    assignee_email_prefix: Optional[str] = None,
+    assignee_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    query = select(WorkItem).options(selectinload(WorkItem.department), selectinload(WorkItem.assignee))
-    query = _apply_role_filter(query, user)
-    if department_id:
-        query = query.where(WorkItem.department_id == department_id)
+    """获取工作项列表"""
+    query = select(WorkItem).options(
+        selectinload(WorkItem.department),
+        selectinload(WorkItem.assignee),
+        selectinload(WorkItem.status_logs),
+    )
+
     if status:
         query = query.where(WorkItem.status == status)
-    if assignee_email_prefix:
-        query = query.where(WorkItem.assignee_email_prefix == assignee_email_prefix)
+    if department_id:
+        query = query.where(WorkItem.department_id == department_id)
+    if assignee_id:
+        query = query.where(WorkItem.assignee_id == assignee_id)
+    if keyword:
+        query = query.where(WorkItem.title.contains(keyword))
+
     query = query.order_by(WorkItem.created_at.desc())
-    result = await db.execute(query)
-    return result.scalars().all()
+    query = query.offset((page - 1) * page_size).limit(page_size)
 
-
-@router.get("/my", response_model=List[WorkItemOut])
-async def my_work_items(
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """获取当前用户的工作项（按邮箱前缀匹配）"""
-    query = (
-        select(WorkItem)
-        .options(selectinload(WorkItem.department), selectinload(WorkItem.assignee))
-        .where(WorkItem.assignee_email_prefix == user.email_prefix)
-        .order_by(WorkItem.created_at.desc())
-    )
     result = await db.execute(query)
     return result.scalars().all()
 
 
 @router.get("/{item_id}", response_model=WorkItemOut)
-async def get_work_item(
-    item_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
+async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    """获取单个工作项"""
     result = await db.execute(
-        select(WorkItem).where(WorkItem.id == item_id).options(selectinload(WorkItem.department), selectinload(WorkItem.assignee))
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item_id)
     )
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
-    # 机密检查
-    user_level = ROLE_LEVELS.get(user.role, 0)
-    if item.is_confidential and user_level < 4 and item.assignee_email_prefix != user.email_prefix:
-        raise HTTPException(status_code=403, detail="无权查看机密工作项")
     return item
 
 
-@router.post("", response_model=WorkItemOut)
-async def create_work_item(
-    data: WorkItemCreate,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role(2)),
-):
+@router.post("", response_model=WorkItemOut, status_code=201)
+async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_db)):
+    """创建工作项"""
     item = WorkItem(**data.model_dump())
     db.add(item)
-    await db.flush()
-    await db.refresh(item, ["department", "assignee"])
-    return item
+    await db.commit()
+    await db.refresh(item)
+
+    # 重新加载关系
+    result = await db.execute(
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item.id)
+    )
+    return result.scalar_one()
 
 
 @router.put("/{item_id}", response_model=WorkItemOut)
 async def update_work_item(
-    item_id: int,
-    data: WorkItemUpdate,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role(2)),
+    item_id: int, data: WorkItemUpdate, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
+    """更新工作项"""
+    result = await db.execute(
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item_id)
+    )
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
-    for field, value in data.model_dump(exclude_unset=True).items():
-        setattr(item, field, value)
-    await db.flush()
-    await db.refresh(item, ["department", "assignee"])
-    return item
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    # 如果状态变更，记录日志
+    if "status" in update_data and update_data["status"] != item.status:
+        log = StatusChangeLog(
+            work_item_id=item.id,
+            old_status=item.status,
+            new_status=update_data["status"],
+            operator_id=None,
+            remark="通过编辑更新状态",
+        )
+        db.add(log)
+
+    for key, value in update_data.items():
+        setattr(item, key, value)
+
+    item.updated_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(item)
+
+    # 重新加载关系
+    result = await db.execute(
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item.id)
+    )
+    return result.scalar_one()
 
 
 @router.patch("/{item_id}/status", response_model=WorkItemOut)
-async def update_status(
-    item_id: int,
-    data: StatusUpdateRequest,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+async def change_status(
+    item_id: int, data: StatusChangeRequest, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
+    """变更工作项状态"""
+    result = await db.execute(
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item_id)
+    )
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
+
     old_status = item.status
-    new_status = WorkItemStatus(data.status)
-    item.status = new_status
-    # 记录状态变更日志
+    item.status = data.status
+    item.updated_at = datetime.utcnow()
+
     log = StatusChangeLog(
         work_item_id=item.id,
         old_status=old_status,
-        new_status=new_status,
-        operator_id=user.id,
+        new_status=data.status,
+        operator_id=None,
         remark=data.remark,
     )
     db.add(log)
-    await db.flush()
-    await db.refresh(item, ["department", "assignee"])
-    return item
+    await db.commit()
+    await db.refresh(item)
+
+    result = await db.execute(
+        select(WorkItem)
+        .options(
+            selectinload(WorkItem.department),
+            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.status_logs),
+        )
+        .where(WorkItem.id == item.id)
+    )
+    return result.scalar_one()
 
 
-@router.delete("/{item_id}")
-async def delete_work_item(
-    item_id: int,
-    db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_role(2)),
-):
+@router.get("/{item_id}/status-logs", response_model=List[StatusChangeLogOut])
+async def get_status_logs(item_id: int, db: AsyncSession = Depends(get_db)):
+    """获取工作项状态变更日志"""
+    result = await db.execute(
+        select(StatusChangeLog)
+        .where(StatusChangeLog.work_item_id == item_id)
+        .order_by(StatusChangeLog.created_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.delete("/{item_id}", status_code=204)
+async def delete_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
+    """删除工作项"""
     result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
     await db.delete(item)
-    return {"message": "删除成功"}
+    await db.commit()

@@ -1,112 +1,316 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Button, Modal, Form, Input, Select, DatePicker, Switch, Space, Typography, message, Popconfirm, Tag } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { ColumnsType } from 'antd/es/table';
-import { workItemApi, departmentApi } from '../../services/api';
-import type { WorkItem, Department } from '../../types';
-import { STATUS_LABELS, STATUS_COLORS } from '../../types';
-import type { WorkItemStatus, WorkItemType } from '../../types';
-import dayjs from 'dayjs';
+import React, { useState, useEffect } from 'react';
+import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
+import { workItemApi, departmentApi, userApi } from '../../services/api';
+import type { WorkItem, Department, User, WorkItemStatus as WorkItemStatusType } from '../../types';
 
-const { Title } = Typography;
 const { TextArea } = Input;
+
+const statusLabels: Record<string, string> = {
+  pending: '待处理',
+  in_progress: '进行中',
+  completed: '已完成',
+  overdue: '已逾期',
+};
+
+const statusColors: Record<string, string> = {
+  pending: 'default',
+  in_progress: 'processing',
+  completed: 'success',
+  overdue: 'error',
+};
 
 const WorkItemManagementPage: React.FC = () => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<WorkItem | null>(null);
-  const [filterDept, setFilterDept] = useState<number | undefined>(undefined);
-  const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
+  const [editingItem, setEditingItem] = useState<WorkItem | null>(null);
   const [form] = Form.useForm();
+  const [submitting, setSubmitting] = useState(false);
+  const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
+  const [remark, setRemark] = useState('');
 
-  useEffect(() => { loadDepartments(); }, []);
-  useEffect(() => { loadItems(); }, [filterDept, filterStatus]);
-
-  const loadItems = async () => {
+  const fetchData = async () => {
     setLoading(true);
     try {
-      const params: Record<string, unknown> = {};
-      if (filterDept) params.department_id = filterDept;
-      if (filterStatus) params.status = filterStatus;
-      const res = await workItemApi.list(params as { department_id?: number; status?: string });
-      setItems(res.data);
-    } catch { message.error('加载工作项失败'); }
-    finally { setLoading(false); }
+      const [itemsData, deptsData, usersData] = await Promise.all([
+        workItemApi.list({ page_size: 100 }),
+        departmentApi.list(),
+        userApi.list(),
+      ]);
+      setItems(itemsData);
+      setDepartments(deptsData);
+      setUsers(usersData);
+    } catch {
+      message.error('获取数据失败');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const loadDepartments = async () => {
-    try { const res = await departmentApi.list(); setDepartments(res.data); } catch { /* ignore */ }
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const openModal = (item?: WorkItem) => {
+    if (item) {
+      setEditingItem(item);
+      form.setFieldsValue(item);
+    } else {
+      setEditingItem(null);
+      form.resetFields();
+    }
+    setModalVisible(true);
   };
 
-  const handleSave = async () => {
+  const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      const data = { ...values, due_date: values.due_date?.format('YYYY-MM-DD') || null };
-      if (editing) { await workItemApi.update(editing.id, data); message.success('更新成功'); }
-      else { await workItemApi.create(data); message.success('创建成功'); }
-      setModalOpen(false); form.resetFields(); setEditing(null); loadItems();
-    } catch { /* validation */ }
+      setSubmitting(true);
+
+      if (editingItem) {
+        await workItemApi.update(editingItem.id, values);
+        message.success('工作项已更新');
+      } else {
+        await workItemApi.create(values);
+        message.success('工作项已创建');
+      }
+
+      setModalVisible(false);
+      fetchData();
+    } catch {
+      message.error('操作失败');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDelete = async (id: number) => {
-    try { await workItemApi.delete(id); message.success('删除成功'); loadItems(); } catch { message.error('删除失败'); }
+    try {
+      await workItemApi.delete(id);
+      message.success('已删除');
+      fetchData();
+    } catch {
+      message.error('删除失败');
+    }
   };
 
-  const columns: ColumnsType<WorkItem> = [
-    { title: '标题', dataIndex: 'title', key: 'title', ellipsis: true, width: 200 },
-    { title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80, render: (t: string) => <Tag color={t === 'task' ? 'blue' : 'purple'}>{t === 'task' ? '任务' : '会签'}</Tag> },
-    { title: '状态', dataIndex: 'status', key: 'status', width: 100, render: (s: string) => <Tag color={STATUS_COLORS[s as WorkItemStatus]}>{STATUS_LABELS[s as WorkItemStatus]}</Tag> },
-    { title: '部门', key: 'dept', width: 100, render: (_: unknown, r: WorkItem) => r.department?.name || '-' },
-    { title: '责任人', dataIndex: 'assignee_email_prefix', key: 'assignee', width: 100 },
-    { title: '截止日期', dataIndex: 'due_date', key: 'due_date', width: 110, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
-    { title: '机密', dataIndex: 'is_confidential', key: 'conf', width: 70, render: (v: boolean) => v ? <Tag color="red">是</Tag> : <Tag>否</Tag> },
+  const openStatusModal = (item: WorkItem) => {
+    setStatusModal({ visible: true, item });
+    setNewStatus(item.status);
+    setRemark('');
+  };
+
+  const handleStatusChange = async () => {
+    if (!statusModal.item) return;
+    setSubmitting(true);
+    try {
+      await workItemApi.changeStatus(statusModal.item.id, {
+        status: newStatus,
+        remark: remark || undefined,
+      });
+      message.success('状态已更新');
+      setStatusModal({ visible: false });
+      fetchData();
+    } catch {
+      message.error('状态更新失败');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getAssigneeName = (item: WorkItem): string => {
+    if (item.assignee?.real_name) return item.assignee.real_name;
+    if (item.assignee_email_prefix) return item.assignee_email_prefix;
+    return '未分配';
+  };
+
+  const columns = [
     {
-      title: '操作', key: 'action', width: 150,
-      render: (_: unknown, record: WorkItem) => (
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 60,
+    },
+    {
+      title: '标题',
+      dataIndex: 'title',
+      key: 'title',
+      width: 250,
+      ellipsis: true,
+      render: (text: string) => (
+        <Tooltip title={text}>
+          <span>{text}</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'item_type',
+      key: 'item_type',
+      width: 80,
+      render: (type: string) => (
+        <Tag color={type === 'cosign' ? 'purple' : 'blue'}>
+          {type === 'cosign' ? '会签' : '任务'}
+        </Tag>
+      ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      width: 100,
+      render: (status: string) => (
+        <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>
+      ),
+    },
+    {
+      title: '部门',
+      key: 'department_id',
+      width: 120,
+      render: (_: any, record: WorkItem) => record.department?.name || '-',
+    },
+    {
+      title: '负责人',
+      key: 'assignee',
+      width: 100,
+      render: (_: any, record: WorkItem) => getAssigneeName(record),
+    },
+    {
+      title: '截止日期',
+      dataIndex: 'due_date',
+      key: 'due_date',
+      width: 120,
+      render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 250,
+      render: (_: any, record: WorkItem) => (
         <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(record); form.setFieldsValue({ ...record, due_date: record.due_date ? dayjs(record.due_date) : null }); setModalOpen(true); }}>编辑</Button>
-          <Popconfirm title="确认删除?" onConfirm={() => handleDelete(record.id)}><Button size="small" danger icon={<DeleteOutlined />}>删除</Button></Popconfirm>
+          <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>
+            变更状态
+          </Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>
+            编辑
+          </Button>
+          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
   ];
 
   return (
-    <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} style={{ margin: 0 }}>工作项管理</Title>
-        <Space>
-          <Select placeholder="筛选部门" allowClear style={{ width: 150 }} value={filterDept} onChange={setFilterDept} options={departments.map((d) => ({ value: d.id, label: d.name }))} />
-          <Select placeholder="筛选状态" allowClear style={{ width: 120 }} value={filterStatus} onChange={setFilterStatus} options={Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增工作项</Button>
-        </Space>
+    <div>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+        <h2>工作项管理</h2>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
+          新建工作项
+        </Button>
       </div>
-      <Table columns={columns} dataSource={items} rowKey="id" loading={loading} pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 条` }} />
-      <Modal title={editing ? '编辑工作项' : '新增工作项'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} destroyOnClose width={600}>
+
+      <Table
+        columns={columns}
+        dataSource={items}
+        rowKey="id"
+        loading={loading}
+        pagination={{ pageSize: 20 }}
+        scroll={{ x: 1100 }}
+      />
+
+      <Modal
+        title={editingItem ? '编辑工作项' : '新建工作项'}
+        open={modalVisible}
+        onOk={handleSubmit}
+        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
+        width={600}
+      >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="content" label="内容" rules={[{ required: true }]}><TextArea rows={3} /></Form.Item>
-          <Space size="large" style={{ width: '100%' }}>
-            <Form.Item name="item_type" label="类型" rules={[{ required: true }]} initialValue="task">
-              <Select style={{ width: 120 }} options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
-            </Form.Item>
-            <Form.Item name="status" label="状态" rules={[{ required: true }]} initialValue="pending">
-              <Select style={{ width: 120 }} options={Object.entries(STATUS_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
-            </Form.Item>
-            <Form.Item name="department_id" label="部门" rules={[{ required: true }]}>
-              <Select style={{ width: 150 }} options={departments.map((d) => ({ value: d.id, label: d.name }))} />
-            </Form.Item>
-          </Space>
-          <Space size="large" style={{ width: '100%' }}>
-            <Form.Item name="assignee_email_prefix" label="责任人邮箱前缀"><Input placeholder="如 zhangsan" /></Form.Item>
-            <Form.Item name="due_date" label="截止日期"><DatePicker /></Form.Item>
-            <Form.Item name="is_confidential" label="机密" valuePropName="checked" initialValue={false}><Switch /></Form.Item>
-          </Space>
+          <Form.Item name="title" label="标题" rules={[{ required: true }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="content" label="内容">
+            <TextArea rows={4} />
+          </Form.Item>
+          <Form.Item name="item_type" label="类型" initialValue="task">
+            <Select
+              options={[
+                { value: 'task', label: '任务' },
+                { value: 'cosign', label: '会签' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="status" label="状态" initialValue="pending">
+            <Select
+              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
+            />
+          </Form.Item>
+          <Form.Item name="department_id" label="部门">
+            <Select
+              allowClear
+              options={departments.map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="assignee_id" label="负责人">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              options={users.map((u) => ({
+                value: u.id,
+                label: u.real_name || u.username,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item name="due_date" label="截止日期">
+            <Input type="datetime-local" />
+          </Form.Item>
+          <Form.Item name="is_confidential" label="是否机密" initialValue={false}>
+            <Select
+              options={[
+                { value: false, label: '否' },
+                { value: true, label: '是' },
+              ]}
+            />
+          </Form.Item>
         </Form>
       </Modal>
-    </Space>
+
+      <Modal
+        title={`变更状态 - ${statusModal.item?.title}`}
+        open={statusModal.visible}
+        onOk={handleStatusChange}
+        onCancel={() => setStatusModal({ visible: false })}
+        confirmLoading={submitting}
+      >
+        <Form layout="vertical">
+          <Form.Item label="新状态">
+            <Select
+              value={newStatus}
+              onChange={setNewStatus}
+              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
+            />
+          </Form.Item>
+          <Form.Item label="备注">
+            <TextArea
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="可选：填写状态变更原因"
+              rows={3}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
   );
 };
 

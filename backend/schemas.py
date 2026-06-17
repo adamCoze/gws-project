@@ -1,60 +1,25 @@
 """Pydantic 数据模型"""
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List
+
 from pydantic import BaseModel, EmailStr
 
+from models import RoleType, WorkItemStatus, WorkItemType, EmailProcessResult
 
-# Auth
-class LoginRequest(BaseModel):
+
+# ========== User ==========
+
+class UserBase(BaseModel):
     username: str
-    password: str
-
-
-# Department
-class DepartmentOut(BaseModel):
-    id: int
-    name: str
-    code: str
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class DepartmentCreate(BaseModel):
-    name: str
-    code: str
-
-
-# User
-class UserOut(BaseModel):
-    id: int
-    username: str
-    email: str
-    email_prefix: str
-    role: str
-    department_id: Optional[int] = None
-    department: Optional[DepartmentOut] = None
-    is_active: bool
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: Optional[UserOut] = None
-
-
-class UserCreate(BaseModel):
-    username: str
-    password: str
-    email: str
-    email_prefix: str
+    email: Optional[str] = None
+    email_prefix: Optional[str] = None
+    real_name: Optional[str] = None
     role: str = "staff"
     department_id: Optional[int] = None
+
+
+class UserCreate(UserBase):
+    password: str
     is_active: bool = True
 
 
@@ -62,50 +27,57 @@ class UserUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     email_prefix: Optional[str] = None
+    real_name: Optional[str] = None
     role: Optional[str] = None
     department_id: Optional[int] = None
+    password: Optional[str] = None
     is_active: Optional[bool] = None
 
 
-class ResetPasswordRequest(BaseModel):
-    password: str
-
-
-# WorkItem
-class WorkItemOut(BaseModel):
+class UserOut(UserBase):
     id: int
-    title: str
-    content: str
-    item_type: str
-    status: str
-    department_id: int
-    department: Optional[DepartmentOut] = None
-    assignee_id: Optional[int] = None
-    assignee: Optional[UserOut] = None
-    assignee_email_prefix: Optional[str] = None
-    due_date: Optional[str] = None
-    is_confidential: bool
-    email_subject: Optional[str] = None
-    email_from: Optional[str] = None
-    email_date: Optional[datetime] = None
+    is_active: bool
     created_at: datetime
-    updated_at: datetime
 
     class Config:
         from_attributes = True
 
 
-class WorkItemCreate(BaseModel):
+# ========== Department ==========
+
+class DepartmentBase(BaseModel):
+    name: str
+    code: str
+
+
+class DepartmentCreate(DepartmentBase):
+    pass
+
+
+class DepartmentOut(DepartmentBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ========== WorkItem ==========
+
+class WorkItemBase(BaseModel):
     title: str
-    content: str
+    content: Optional[str] = None
     item_type: str = "task"
     status: str = "pending"
-    department_id: int
+    department_id: Optional[int] = None
+    assignee_id: Optional[int] = None
     assignee_email_prefix: Optional[str] = None
-    due_date: Optional[str] = None
+    due_date: Optional[datetime] = None
     is_confidential: bool = False
-    email_subject: Optional[str] = None
-    email_from: Optional[str] = None
+
+
+class WorkItemCreate(WorkItemBase):
+    pass
 
 
 class WorkItemUpdate(BaseModel):
@@ -114,138 +86,58 @@ class WorkItemUpdate(BaseModel):
     item_type: Optional[str] = None
     status: Optional[str] = None
     department_id: Optional[int] = None
+    assignee_id: Optional[int] = None
     assignee_email_prefix: Optional[str] = None
-    due_date: Optional[str] = None
+    due_date: Optional[datetime] = None
     is_confidential: Optional[bool] = None
 
 
-class StatusUpdateRequest(BaseModel):
+class StatusChangeRequest(BaseModel):
     status: str
-    remark: str = ""
+    remark: Optional[str] = None
 
 
-# StatusChangeLog
 class StatusChangeLogOut(BaseModel):
     id: int
     work_item_id: int
-    old_status: str
+    old_status: Optional[str]
     new_status: str
-    operator_id: int
-    operator: Optional[UserOut] = None
-    remark: str
+    operator_id: Optional[int] = None
+    changed_by: Optional[str] = None
+    remark: Optional[str]
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-# EmailConfig
-class EmailConfigOut(BaseModel):
+class WorkItemOut(WorkItemBase):
     id: int
-    email_address: str
-    imap_host: str
-    imap_port: int
-    smtp_host: str
-    smtp_port: int
-    use_tls: bool
-    username: str
-    is_active: bool
-    last_check_at: Optional[datetime] = None
-    check_interval: int
+    email_subject: Optional[str] = None
+    email_from: Optional[str] = None
+    email_date: Optional[datetime] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class EmailConfigCreate(BaseModel):
-    email_address: str
-    imap_host: str = "imap.qiye.aliyun.com"
-    imap_port: int = 993
-    smtp_host: str = "smtp.qiye.aliyun.com"
-    smtp_port: int = 465
-    use_tls: bool = True
-    username: str
-    password: str
-    check_interval: int = 5
-    is_active: bool = True
-
-
-class EmailConfigUpdate(BaseModel):
-    email_address: Optional[str] = None
-    imap_host: Optional[str] = None
-    imap_port: Optional[int] = None
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
-    use_tls: Optional[bool] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    check_interval: Optional[int] = None
-    is_active: Optional[bool] = None
-
-
-# EmailLog
-class EmailLogOut(BaseModel):
-    id: int
-    message_id: str
-    subject: Optional[str] = None
-    from_addr: Optional[str] = None
-    received_at: Optional[datetime] = None
-    process_result: str
-    retry_count: int
-    error_message: Optional[str] = None
-    work_item_id: Optional[int] = None
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class EmailLogCreate(BaseModel):
-    message_id: str
-    subject: Optional[str] = None
-    from_addr: Optional[str] = None
-    received_at: Optional[datetime] = None
-    process_result: str
-    retry_count: int = 0
-    error_message: Optional[str] = None
-    work_item_id: Optional[int] = None
-
-
-# SystemConfig
-class SystemConfigOut(BaseModel):
-    id: int
-    config_key: str
-    config_value: Optional[str] = None
-    description: Optional[str] = None
     updated_at: datetime
+    department: Optional[DepartmentOut] = None
+    assignee: Optional[UserOut] = None
+    status_logs: List[StatusChangeLogOut] = []
 
     class Config:
         from_attributes = True
 
 
-class SystemConfigCreate(BaseModel):
-    config_key: str
-    config_value: Optional[str] = None
-    description: Optional[str] = None
+# ========== Kanban ==========
+
+class KanbanDeptData(BaseModel):
+    department_id: int
+    department_name: str
+    pending: List[WorkItemOut] = []
+    in_progress: List[WorkItemOut] = []
+    completed: List[WorkItemOut] = []
+    overdue: List[WorkItemOut] = []
 
 
-class SystemConfigUpdate(BaseModel):
-    config_value: Optional[str] = None
-    description: Optional[str] = None
-
-
-# Holiday
-class HolidayOut(BaseModel):
-    id: int
-    name: str
-    date: str
-    year: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
+# ========== Holiday ==========
 
 class HolidayCreate(BaseModel):
     name: str
@@ -253,11 +145,103 @@ class HolidayCreate(BaseModel):
     year: int
 
 
-# Kanban
-class KanbanDeptData(BaseModel):
-    department_id: int
-    department_name: str
-    pending: List[WorkItemOut]
-    in_progress: List[WorkItemOut]
-    completed: List[WorkItemOut]
-    overdue: List[WorkItemOut]
+class HolidayOut(HolidayCreate):
+    id: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+# ========== EmailConfig ==========
+
+class EmailConfigBase(BaseModel):
+    email_address: str
+    imap_host: str
+    imap_port: int = 993
+    username: str
+    is_active: bool = True
+
+
+class EmailConfigCreate(EmailConfigBase):
+    password: str
+
+
+class EmailConfigUpdate(BaseModel):
+    email_address: Optional[str] = None
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class EmailConfigOut(EmailConfigBase):
+    id: int
+    last_check_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ========== EmailLog ==========
+
+class EmailLogOut(BaseModel):
+    id: int
+    message_id: str
+    subject: Optional[str]
+    from_addr: Optional[str]
+    received_at: datetime
+    process_result: str
+    retry_count: int
+    error_message: Optional[str]
+    work_item_id: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ========== SystemConfig ==========
+
+class SystemConfigBase(BaseModel):
+    config_key: str
+    config_value: Optional[str] = None
+
+
+class SystemConfigCreate(SystemConfigBase):
+    pass
+
+
+class SystemConfigUpdate(BaseModel):
+    config_value: str
+
+
+class SystemConfigOut(SystemConfigBase):
+    id: int
+    updated_at: Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+# ========== Auth ==========
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    user: UserOut
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ResetPasswordRequest(BaseModel):
+    password: str

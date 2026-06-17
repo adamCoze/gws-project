@@ -4,6 +4,7 @@ import email
 import imaplib
 import logging
 from datetime import datetime
+from difflib import SequenceMatcher
 from email.header import decode_header
 from typing import Optional
 
@@ -11,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
-from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult
+from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult, WorkItemStatus
 from services.ai_service import analyze_email_with_ai
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,31 @@ def _decode_str(s) -> str:
     return "".join(result)
 
 
+def _normalize_subject(subject: str) -> str:
+    """去除邮件主题中的 Re:/Fwd:/转发:/回复: 等前缀，用于相似度比较"""
+    if not subject:
+        return ""
+    prefixes = ["re:", "fwd:", "转发:", "回复:", "转寄:", "fw:", "Re:", "Fwd:", "Fw:"]
+    normalized = subject.strip()
+    changed = True
+    while changed:
+        changed = False
+        for prefix in prefixes:
+            if normalized.lower().startswith(prefix.lower()):
+                normalized = normalized[len(prefix):].strip()
+                changed = True
+    return normalized
+
+
+def _subject_similarity(s1: str, s2: str) -> float:
+    """计算两个邮件主题的相似度（0-1）"""
+    n1 = _normalize_subject(s1)
+    n2 = _normalize_subject(s2)
+    if not n1 or not n2:
+        return 0.0
+    return SequenceMatcher(None, n1, n2).ratio()
+
+
 def _get_email_body(msg) -> str:
     """提取邮件正文（包括转发邮件的转发体）"""
     body = ""
@@ -60,36 +86,15 @@ def _get_email_body(msg) -> str:
             charset = msg.get_content_charset() or "utf-8"
             body = payload.decode(charset, errors="replace")
 
-    # 解析转发邮件：提取转发体中的完整原始邮件内容
     body = _extract_forwarded_content(body)
-
     return body
 
 
 def _extract_forwarded_content(body: str) -> str:
-    """
-    提取转发邮件中的完整原始邮件内容
-
-    转发邮件格式通常是：
-    ---------- Forwarded message ----------
-    From: xxx
-    Date: xxx
-    Subject: xxx
-    To: xxx
-
-    原始邮件内容...
-
-    或者：
-    转发邮件附言...
-
-    -----Original Message-----
-    From: xxx
-    ...
-    """
+    """提取转发邮件中的完整原始邮件内容"""
     if not body:
         return body
 
-    # 常见的转发标记
     forward_markers = [
         "---------- Forwarded message ----------",
         "---------- 转发的邮件 ----------",
@@ -100,13 +105,9 @@ def _extract_forwarded_content(body: str) -> str:
         "转发邮件：",
     ]
 
-    # 查找转发标记
     for marker in forward_markers:
         if marker in body:
-            # 保留转发标记及之后的所有内容（包括转发体）
-            idx = body.find(marker)
-            # 保留标记前的附言 + 转发体
-            return body  # 保留完整内容，让AI去理解
+            return body
 
     return body
 
@@ -115,7 +116,6 @@ async def _check_email_config(config: EmailConfig):
     """检查单个邮箱配置的新邮件"""
     try:
         loop = asyncio.get_event_loop()
-        # IMAP 是同步的，在线程池中执行
         mail = await loop.run_in_executor(None, _imap_connect, config)
         if not mail:
             return
@@ -123,7 +123,7 @@ async def _check_email_config(config: EmailConfig):
         _, messages = mail.search(None, "UNSEEN")
         email_ids = messages[0].split()
 
-        for eid in email_ids[:10]:  # 每次最多处理10封
+        for eid in email_ids[:10]:
             _, msg_data = mail.fetch(eid, "(RFC822)")
             if msg_data and msg_data[0]:
                 raw_email = msg_data[0][1]
@@ -138,12 +138,10 @@ async def _check_email_config(config: EmailConfig):
 
                 if subject and body:
                     await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body, to_addrs, cc_addrs)
-                    # 标记邮件为已读
                     mail.store(eid, '+FLAGS', '\\Seen')
 
         mail.logout()
 
-        # 更新最后检查时间
         async with async_session() as db:
             result = await db.execute(select(EmailConfig).where(EmailConfig.id == config.id))
             cfg = result.scalar_one_or_none()
@@ -189,12 +187,11 @@ async def _process_email_with_retry(
             retry_count += 1
             if retry_count <= MAX_RETRY_COUNT:
                 logger.info(f"AI分析失败，第 {retry_count} 次重试: {subject}")
-                await asyncio.sleep(2)  # 等待2秒后重试
+                await asyncio.sleep(2)
             else:
                 logger.warning(f"AI分析失败，已达最大重试次数: {subject}")
                 return
         else:
-            # RETRY 状态，继续重试
             retry_count += 1
             if retry_count <= MAX_RETRY_COUNT:
                 logger.info(f"处理失败，第 {retry_count} 次重试: {subject}")
@@ -202,6 +199,22 @@ async def _process_email_with_retry(
             else:
                 logger.warning(f"处理失败，已达最大重试次数: {subject}")
                 return
+
+
+async def _find_matching_work_item(db: AsyncSession, subject: str, item_type: str) -> Optional[WorkItem]:
+    """查找标题相似的工作项（相似度 > 80%），用于合并"""
+    result = await db.execute(
+        select(WorkItem).where(WorkItem.status != WorkItemStatus.completed)
+    )
+    existing_items = result.scalars().all()
+
+    for item in existing_items:
+        sim = _subject_similarity(subject, item.email_subject or item.title)
+        if sim > 0.8:
+            logger.info(f"标题相似度匹配: {sim:.2f}，合并到工作项 #{item.id}: {item.title[:50]}")
+            return item
+
+    return None
 
 
 async def _process_email(
@@ -223,10 +236,9 @@ async def _process_email(
                 logger.info(f"邮件已处理过，跳过: {message_id}")
                 return EmailProcessResult.SUCCESS
 
-            # 使用 AI 分析邮件内容（传入收件人信息用于责任人兜底）
+            # 使用 AI 分析邮件内容
             analysis = await analyze_email_with_ai(subject, body, to_addrs, cc_addrs)
             if not analysis:
-                # 记录失败日志
                 log = EmailLog(
                     message_id=message_id,
                     subject=subject,
@@ -250,27 +262,56 @@ async def _process_email(
                 db.add(dept)
                 await db.flush()
 
-            # 解析日期
             due_date = analysis.get("due_date")
+            item_type = analysis.get("type", "task")
+            completion = analysis.get("completion_assessment", "in_progress")
 
-            # 创建工作项
-            item = WorkItem(
-                title=analysis.get("title", subject[:100]),
-                content=analysis.get("summary", body[:500]),
-                item_type=analysis.get("type", "task"),
-                status="pending",
-                department_id=dept.id,
-                assignee_email_prefix=analysis.get("assignee_prefix"),
-                due_date=due_date,
-                is_confidential=analysis.get("is_confidential", False),
-                email_subject=subject,
-                email_from=from_addr,
-                email_date=datetime.utcnow(),
-            )
-            db.add(item)
-            await db.flush()
+            # 确定工作项状态
+            if completion == "completed":
+                new_status = WorkItemStatus.completed
+            elif completion == "in_progress":
+                new_status = WorkItemStatus.in_progress
+            else:
+                new_status = WorkItemStatus.pending
 
-            # 记录成功日志
+            # 查找是否有相似的工作项（重复合并）
+            matching_item = await _find_matching_work_item(db, subject, item_type)
+
+            if matching_item:
+                # 合并到已有工作项：更新内容、责任人、状态
+                logger.info(f"合并邮件到工作项 #{matching_item.id}")
+                matching_item.content = analysis.get("summary", matching_item.content)
+                matching_item.assignee_email_prefix = analysis.get("assignee_prefix", matching_item.assignee_email_prefix)
+                if due_date:
+                    matching_item.due_date = due_date
+                # 状态只升级，不降级（completed > in_progress > pending）
+                status_priority = {"pending": 0, "in_progress": 1, "completed": 2, "overdue": 1}
+                if status_priority.get(new_status.value, 0) > status_priority.get(matching_item.status.value, 0):
+                    matching_item.status = new_status
+                matching_item.updated_at = datetime.utcnow()
+
+                work_item_id = matching_item.id
+            else:
+                # 创建新工作项
+                item = WorkItem(
+                    title=analysis.get("title", subject[:100]),
+                    content=analysis.get("summary", body[:500]),
+                    item_type=item_type,
+                    status=new_status,
+                    department_id=dept.id,
+                    assignee_email_prefix=analysis.get("assignee_prefix"),
+                    due_date=due_date,
+                    is_confidential=analysis.get("is_confidential", False),
+                    email_subject=subject,
+                    email_from=from_addr,
+                    email_date=datetime.utcnow(),
+                )
+                db.add(item)
+                await db.flush()
+                work_item_id = item.id
+                logger.info(f"成功创建工作项: {item.title} (状态: {new_status.value})")
+
+            # 记录邮件日志
             log = EmailLog(
                 message_id=message_id,
                 subject=subject,
@@ -279,18 +320,16 @@ async def _process_email(
                 process_result=EmailProcessResult.SUCCESS,
                 retry_count=retry_count,
                 error_message=None,
-                work_item_id=item.id,
+                work_item_id=work_item_id,
             )
             db.add(log)
             await db.commit()
-            logger.info(f"成功创建工作项: {item.title}")
             return EmailProcessResult.SUCCESS
 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"处理邮件失败: {error_msg}")
 
-            # 记录失败日志
             try:
                 log = EmailLog(
                     message_id=message_id,
@@ -330,8 +369,7 @@ async def _monitor_loop():
         except Exception as e:
             logger.error(f"邮件监听循环错误: {e}")
 
-        # 等待指定间隔
-        await asyncio.sleep(300)  # 5分钟
+        await asyncio.sleep(300)
 
 
 async def start_email_monitor():
