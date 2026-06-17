@@ -2,26 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
-import type { WorkItem, Department, User, WorkItemStatus as WorkItemStatusType } from '../../types';
+import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType } from '../../types';
+import { STATUS_LABELS, STATUS_COLORS } from '../../types';
 
 const { TextArea } = Input;
 
-const statusLabels: Record<string, string> = {
-  pending: '待处理',
-  completed: '已完成',
-  overdue: '已逾期',
-};
-
-const statusColors: Record<string, string> = {
-  pending: 'default',
-  completed: 'success',
-  overdue: 'error',
-};
+interface UserBrief {
+  id: number;
+  real_name: string;
+  username: string;
+  email_prefix: string;
+}
 
 const WorkItemManagementPage: React.FC = () => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
@@ -33,20 +29,33 @@ const WorkItemManagementPage: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
+
+    // Fetch work items (core data) - independent request
     try {
-      const [itemsData, deptsData, usersData] = await Promise.all([
-        workItemApi.list({ page_size: 100 }),
-        departmentApi.list(),
-        userApi.list(),
-      ]);
+      const itemsData = await workItemApi.list({ page_size: 100 });
       setItems(itemsData);
-      setDepartments(deptsData);
-      setUsers(usersData);
-    } catch {
-      message.error('获取数据失败');
-    } finally {
-      setLoading(false);
+    } catch (e) {
+      console.error('Failed to fetch work items:', e);
+      message.error('获取工作项失败');
     }
+
+    // Fetch departments - independent request, non-critical
+    try {
+      const deptsData = await departmentApi.list();
+      setDepartments(deptsData);
+    } catch (e) {
+      console.error('Failed to fetch departments:', e);
+    }
+
+    // Fetch users brief list (low permission, works for all roles) - independent request
+    try {
+      const usersData = await userApi.listBrief();
+      setUsers(usersData);
+    } catch (e) {
+      console.error('Failed to fetch users brief:', e);
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -126,80 +135,42 @@ const WorkItemManagementPage: React.FC = () => {
     return '未分配';
   };
 
+  const statusOptions = Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v }));
+
   const columns = [
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     {
-      title: 'ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 60,
+      title: '标题', dataIndex: 'title', key: 'title', width: 250, ellipsis: true,
+      render: (text: string) => <Tooltip title={text}><span>{text}</span></Tooltip>,
     },
     {
-      title: '标题',
-      dataIndex: 'title',
-      key: 'title',
-      width: 250,
-      ellipsis: true,
-      render: (text: string) => (
-        <Tooltip title={text}>
-          <span>{text}</span>
-        </Tooltip>
-      ),
+      title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80,
+      render: (type: string) => <Tag color={type === 'cosign' ? 'purple' : 'blue'}>{type === 'cosign' ? '会签' : '任务'}</Tag>,
     },
     {
-      title: '类型',
-      dataIndex: 'item_type',
-      key: 'item_type',
-      width: 80,
-      render: (type: string) => (
-        <Tag color={type === 'cosign' ? 'purple' : 'blue'}>
-          {type === 'cosign' ? '会签' : '任务'}
-        </Tag>
-      ),
+      title: '状态', dataIndex: 'status', key: 'status', width: 100,
+      render: (status: string) => <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status]}</Tag>,
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      render: (status: string) => (
-        <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>
-      ),
+      title: '部门', key: 'department_id', width: 120,
+      render: (_: unknown, record: WorkItem) => record.department?.name || '-',
     },
     {
-      title: '部门',
-      key: 'department_id',
-      width: 120,
-      render: (_: any, record: WorkItem) => record.department?.name || '-',
+      title: '负责人', key: 'assignee', width: 100,
+      render: (_: unknown, record: WorkItem) => getAssigneeName(record),
     },
     {
-      title: '负责人',
-      key: 'assignee',
-      width: 100,
-      render: (_: any, record: WorkItem) => getAssigneeName(record),
-    },
-    {
-      title: '截止日期',
-      dataIndex: 'due_date',
-      key: 'due_date',
-      width: 120,
+      title: '截止日期', dataIndex: 'due_date', key: 'due_date', width: 120,
       render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
     },
     {
-      title: '操作',
-      key: 'action',
-      width: 250,
-      render: (_: any, record: WorkItem) => (
+      title: '操作', key: 'action', width: 250,
+      render: (_: unknown, record: WorkItem) => (
         <Space>
-          <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>
-            变更状态
-          </Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>
-            编辑
-          </Button>
+          <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />}>
-              删除
-            </Button>
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -210,19 +181,10 @@ const WorkItemManagementPage: React.FC = () => {
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h2>工作项管理</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
-          新建工作项
-        </Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新建工作项</Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={items}
-        rowKey="id"
-        loading={loading}
-        pagination={{ pageSize: 20 }}
-        scroll={{ x: 1100 }}
-      />
+      <Table columns={columns} dataSource={items} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} scroll={{ x: 1100 }} />
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}
@@ -233,52 +195,23 @@ const WorkItemManagementPage: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="标题" rules={[{ required: true }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="content" label="内容">
-            <TextArea rows={4} />
-          </Form.Item>
+          <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="content" label="内容"><TextArea rows={4} /></Form.Item>
           <Form.Item name="item_type" label="类型" initialValue="task">
-            <Select
-              options={[
-                { value: 'task', label: '任务' },
-                { value: 'cosign', label: '会签' },
-              ]}
-            />
+            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
-            <Select
-              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
-            />
+            <Select options={statusOptions} />
           </Form.Item>
           <Form.Item name="department_id" label="部门">
-            <Select
-              allowClear
-              options={departments.map((d) => ({ value: d.id, label: d.name }))}
-            />
+            <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
           </Form.Item>
           <Form.Item name="assignee_id" label="负责人">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              options={users.map((u) => ({
-                value: u.id,
-                label: u.real_name || u.username,
-              }))}
-            />
+            <Select allowClear showSearch optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))} />
           </Form.Item>
-          <Form.Item name="due_date" label="截止日期">
-            <Input type="datetime-local" />
-          </Form.Item>
+          <Form.Item name="due_date" label="截止日期"><Input type="datetime-local" /></Form.Item>
           <Form.Item name="is_confidential" label="是否机密" initialValue={false}>
-            <Select
-              options={[
-                { value: false, label: '否' },
-                { value: true, label: '是' },
-              ]}
-            />
+            <Select options={[{ value: false, label: '否' }, { value: true, label: '是' }]} />
           </Form.Item>
         </Form>
       </Modal>
@@ -292,19 +225,10 @@ const WorkItemManagementPage: React.FC = () => {
       >
         <Form layout="vertical">
           <Form.Item label="新状态">
-            <Select
-              value={newStatus}
-              onChange={setNewStatus}
-              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
-            />
+            <Select value={newStatus} onChange={setNewStatus} options={statusOptions} />
           </Form.Item>
           <Form.Item label="备注">
-            <TextArea
-              value={remark}
-              onChange={(e) => setRemark(e.target.value)}
-              placeholder="可选：填写状态变更原因"
-              rows={3}
-            />
+            <TextArea value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="可选：填写状态变更原因" rows={3} />
           </Form.Item>
         </Form>
       </Modal>

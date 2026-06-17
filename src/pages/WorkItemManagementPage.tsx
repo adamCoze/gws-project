@@ -35,23 +35,23 @@ const WorkItemManagementPage: React.FC = () => {
       const itemsData = await workItemApi.list({ page_size: 100 });
       setItems(itemsData);
     } catch {
-      message.error('获取工作项失败');
+      message.error('获取工作项失败_v2');
     }
 
     // Fetch departments
     try {
       const deptsData = await departmentApi.list();
       setDepartments(deptsData);
-    } catch {
-      // Non-critical
+    } catch (e) {
+      console.error('Failed to fetch departments:', e);
     }
 
     // Fetch users brief list (low permission, works for all roles)
     try {
       const usersData = await userApi.listBrief();
       setUsers(usersData);
-    } catch {
-      // Non-critical
+    } catch (e) {
+      console.error('Failed to fetch users brief:', e);
     }
 
     setLoading(false);
