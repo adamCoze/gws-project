@@ -91,7 +91,7 @@ const MainLayout: React.FC = () => {
             <Space style={{ cursor: 'pointer' }}>
               <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
               <div>
-                <Text strong style={{ display: 'block', lineHeight: 1.2 }}>{user?.username}</Text>
+                <Text strong style={{ display: 'block', lineHeight: 1.2 }}>{user?.real_name || user?.username}</Text>
                 <Text type="secondary" style={{ fontSize: 12 }}>{ROLE_LABELS[user?.role as RoleType] || ''}</Text>
               </div>
             </Space>

@@ -1,9 +1,9 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, Holiday, SystemConfig, WorkItemStatus, StatusChangeLog } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, Holiday, SystemConfig, StatusChangeLog } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 10000,
+  timeout: 30000,
 });
 
 // 请求拦截器 - 添加 token
@@ -36,16 +36,20 @@ export const authApi = {
 
 // Work Items
 export const workItemApi = {
-  list: (params?: { department_id?: number; status?: string; assignee_email_prefix?: string }) =>
-    api.get<WorkItem[]>('/work-items', { params }),
+  list: async (params?: { department_id?: number; status?: string; assignee_email_prefix?: string; page_size?: number }): Promise<WorkItem[]> => {
+    const res = await api.get('/work-items', { params });
+    return res as unknown as WorkItem[];
+  },
   get: (id: number) => api.get<WorkItem>(`/work-items/${id}`),
   create: (data: Partial<WorkItem>) => api.post<WorkItem>('/work-items', data),
   update: (id: number, data: Partial<WorkItem>) => api.put<WorkItem>(`/work-items/${id}`, data),
   delete: (id: number) => api.delete(`/work-items/${id}`),
-  updateStatus: (id: number, status: WorkItemStatus, remark?: string) =>
-    api.patch(`/work-items/${id}/status`, { status, remark }),
-  myWork: (emailPrefix?: string) =>
-    api.get<WorkItem[]>('/work-items', { params: { assignee_email_prefix: emailPrefix } }),
+  changeStatus: (id: number, data: { status: string; remark?: string }) =>
+    api.patch(`/work-items/${id}/status`, data),
+  myWork: async (emailPrefix?: string): Promise<WorkItem[]> => {
+    const res = await api.get('/work-items/my', { params: emailPrefix ? { assignee_email_prefix: emailPrefix } : {} });
+    return res as unknown as WorkItem[];
+  },
 };
 
 // Status Change Logs
@@ -56,12 +60,16 @@ export const statusChangeLogApi = {
 
 // Kanban
 export const kanbanApi = {
-  get: (departmentId?: number) => api.get('/kanban', { params: { department_id: departmentId } }),
+  get: (departmentId?: number) =>
+    api.get('/kanban', { params: { department_id: departmentId } }),
 };
 
 // Departments
 export const departmentApi = {
-  list: () => api.get<Department[]>('/departments'),
+  list: async (): Promise<Department[]> => {
+    const res = await api.get('/departments');
+    return res as unknown as Department[];
+  },
   create: (data: Partial<Department>) => api.post<Department>('/departments', data),
   update: (id: number, data: Partial<Department>) => api.put<Department>(`/departments/${id}`, data),
   delete: (id: number) => api.delete(`/departments/${id}`),
@@ -69,7 +77,10 @@ export const departmentApi = {
 
 // Users
 export const userApi = {
-  list: () => api.get<User[]>('/users'),
+  list: async (): Promise<User[]> => {
+    const res = await api.get('/users');
+    return res as unknown as User[];
+  },
   create: (data: Partial<User> & { password?: string }) => api.post<User>('/users', data),
   update: (id: number, data: Partial<User> & { password?: string }) => api.put<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),

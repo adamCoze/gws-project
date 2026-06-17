@@ -11,17 +11,8 @@ import EmailLogPage from './pages/admin/EmailLogPage';
 import HolidayConfigPage from './pages/admin/HolidayConfigPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
+import { ROLE_LEVELS } from './types';
 import type { RoleType } from './types';
-
-// 内联 ROLE_LEVELS 以避免 Vite 构建时产生 require() 调用
-const ROLE_LEVELS: Record<RoleType, number> = {
-  staff: 1,
-  manager: 2,
-  district_manager: 3,
-  regulator: 4,
-  president: 5,
-  admin: 6,
-};
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; minLevel?: number }> = ({ children, minLevel = 1 }) => {
   const { isAuthenticated, user, isLoading } = useAuth();

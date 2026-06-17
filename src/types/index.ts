@@ -1,29 +1,39 @@
-export type UserRole = 'admin' | 'staff';
-export type RoleType = 'admin' | 'staff';
-export type WorkItemStatus = 'pending' | 'completed' | 'overdue';
+export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff';
+export type RoleType = UserRole;
+export type WorkItemStatus = 'pending' | 'completed' | 'shelved' | 'cancelled';
 export type WorkItemType = 'task' | 'cosign';
 export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
-  staff: '普通用户',
+  president: '总裁',
+  regulator: '规管',
+  district_manager: '区总',
+  manager: '经理',
+  staff: '专员',
 };
 
 export const ROLE_LEVELS: Record<string, number> = {
-  admin: 1,
-  staff: 2,
+  staff: 1,
+  manager: 2,
+  district_manager: 3,
+  regulator: 4,
+  president: 5,
+  admin: 6,
 };
 
 export const STATUS_LABELS: Record<string, string> = {
   pending: '待处理',
   completed: '已完成',
-  overdue: '已逾期',
+  shelved: '暂时搁置',
+  cancelled: '不再进行',
 };
 
 export const STATUS_COLORS: Record<string, string> = {
   pending: 'default',
   completed: 'success',
-  overdue: 'error',
+  shelved: 'warning',
+  cancelled: 'default',
 };
 
 export interface Department {
@@ -41,6 +51,7 @@ export interface User {
   real_name?: string;
   role: UserRole;
   department_id?: number;
+  region?: string;
   is_active: boolean;
   created_at: string;
   department?: Department;
@@ -71,6 +82,7 @@ export interface WorkItem {
   email_subject?: string;
   email_from?: string;
   email_date?: string;
+  latest_progress?: string;
   created_at: string;
   updated_at: string;
   department?: Department;
@@ -107,4 +119,14 @@ export interface SystemConfig {
   config_key: string;
   config_value?: string;
   updated_at?: string;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  access_token: string;
+  user: User;
 }

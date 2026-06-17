@@ -35,7 +35,8 @@ UserRole = RoleType
 class WorkItemStatus(str, Enum):
     pending = "pending"
     completed = "completed"
-    overdue = "overdue"
+    shelved = "shelved"
+    cancelled = "cancelled"
 
 
 class WorkItemType(str, Enum):
@@ -71,6 +72,7 @@ class User(Base):
     real_name = Column(String(50), nullable=True)
     role = Column(String(16), default="staff", nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    region = Column(String(20), nullable=True)
     hashed_password = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -105,6 +107,7 @@ class WorkItem(Base):
     email_subject = Column(String(500), nullable=True)
     email_from = Column(String(200), nullable=True)
     email_date = Column(DateTime, nullable=True)
+    latest_progress = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ClockCircleOutlined, PauseCircleOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { workItemApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
@@ -21,8 +21,8 @@ const DashboardPage: React.FC = () => {
 
   const loadMyWork = async () => {
     try {
-      const res = await workItemApi.myWork();
-      setWorkItems(res.data);
+      const data = await workItemApi.myWork(user?.email_prefix);
+      setWorkItems(data);
     } catch {
       message.error('加载工作项失败');
     } finally {
@@ -34,7 +34,8 @@ const DashboardPage: React.FC = () => {
     total: workItems.length,
     pending: workItems.filter((i) => i.status === 'pending').length,
     completed: workItems.filter((i) => i.status === 'completed').length,
-    overdue: workItems.filter((i) => i.status === 'overdue').length,
+    shelved: workItems.filter((i) => i.status === 'shelved').length,
+    cancelled: workItems.filter((i) => i.status === 'cancelled').length,
   };
 
   const columns: ColumnsType<WorkItem> = [
@@ -51,7 +52,7 @@ const DashboardPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 100,
-      render: (status: string) => <Tag color={STATUS_COLORS[status as keyof typeof STATUS_COLORS]}>{STATUS_LABELS[status as keyof typeof STATUS_LABELS]}</Tag>,
+      render: (status: string) => <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status]}</Tag>,
     },
     {
       title: '部门',
@@ -78,7 +79,7 @@ const DashboardPage: React.FC = () => {
       dataIndex: 'email_date',
       key: 'email_date',
       width: 120,
-      render: (date: string) => dayjs(date).format('YYYY-MM-DD'),
+      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
     },
   ];
 
@@ -86,12 +87,13 @@ const DashboardPage: React.FC = () => {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Title level={4}>我的工作 - {user?.username}</Title>
+      <Title level={4}>我的工作 - {user?.real_name || user?.username}</Title>
       <Row gutter={16}>
-        <Col span={6}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="已逾期" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
+        <Col span={5}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
+        <Col span={5}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
+        <Col span={5}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+        <Col span={5}><Card><Statistic title="暂时搁置" value={stats.shelved} valueStyle={{ color: '#fa8c16' }} prefix={<PauseCircleOutlined />} /></Card></Col>
+        <Col span={4}><Card><Statistic title="不再进行" value={stats.cancelled} valueStyle={{ color: '#999' }} prefix={<StopOutlined />} /></Card></Col>
       </Row>
       <Table columns={columns} dataSource={workItems} rowKey="id" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }} />
     </Space>

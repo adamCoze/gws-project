@@ -20,7 +20,7 @@ router = APIRouter(prefix="/work-items", tags=["work-items"])
 
 @router.get("", response_model=List[WorkItemOut])
 async def list_work_items(
-    status: Optional[WorkItemStatus] = None,
+    status: Optional[str] = None,
     department_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     assignee_email_prefix: Optional[str] = None,

@@ -16,6 +16,7 @@ class UserBase(BaseModel):
     real_name: Optional[str] = None
     role: str = "staff"
     department_id: Optional[int] = None
+    region: Optional[str] = None
 
 
 class UserCreate(UserBase):
@@ -30,6 +31,7 @@ class UserUpdate(BaseModel):
     real_name: Optional[str] = None
     role: Optional[str] = None
     department_id: Optional[int] = None
+    region: Optional[str] = None
     password: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -90,6 +92,7 @@ class WorkItemUpdate(BaseModel):
     assignee_email_prefix: Optional[str] = None
     due_date: Optional[datetime] = None
     is_confidential: Optional[bool] = None
+    latest_progress: Optional[str] = None
 
 
 class StatusChangeRequest(BaseModel):
@@ -132,6 +135,7 @@ class WorkItemOut(WorkItemBase):
     email_subject: Optional[str] = None
     email_from: Optional[str] = None
     email_date: Optional[datetime] = None
+    latest_progress: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     department: Optional[DepartmentOut] = None
@@ -148,9 +152,9 @@ class KanbanDeptData(BaseModel):
     department_id: int
     department_name: str
     pending: List[WorkItemOut] = []
-    in_progress: List[WorkItemOut] = []
+    shelved: List[WorkItemOut] = []
     completed: List[WorkItemOut] = []
-    overdue: List[WorkItemOut] = []
+    cancelled: List[WorkItemOut] = []
 
 
 # ========== Holiday ==========

@@ -7,7 +7,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import WorkItem, Department, User, WorkItemStatus
+from models import WorkItem, Department, User, WorkItemStatus, StatusChangeLog
 from schemas import KanbanDeptData, WorkItemOut
 from auth import get_current_user, ROLE_LEVELS
 
@@ -36,7 +36,12 @@ async def get_kanban(
         item_query = (
             select(WorkItem)
             .where(WorkItem.department_id == dept.id)
-            .options(selectinload(WorkItem.department), selectinload(WorkItem.assignee))
+            .options(
+                selectinload(WorkItem.department),
+                selectinload(WorkItem.assignee),
+                selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+                selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
+            )
         )
         # 机密过滤
         if user_level < 4:
@@ -49,10 +54,10 @@ async def get_kanban(
         kanban_data.append(KanbanDeptData(
             department_id=dept.id,
             department_name=dept.name,
-            pending=[WorkItemOut.model_validate(i) for i in items if i.status == WorkItemStatus.pending],
-            in_progress=[WorkItemOut.model_validate(i) for i in items if i.status == WorkItemStatus.in_progress],
-            completed=[WorkItemOut.model_validate(i) for i in items if i.status == WorkItemStatus.completed],
-            overdue=[WorkItemOut.model_validate(i) for i in items if i.status == WorkItemStatus.overdue],
+            pending=[WorkItemOut.model_validate(i) for i in items if i.status == "pending"],
+            shelved=[WorkItemOut.model_validate(i) for i in items if i.status == "shelved"],
+            completed=[WorkItemOut.model_validate(i) for i in items if i.status == "completed"],
+            cancelled=[WorkItemOut.model_validate(i) for i in items if i.status == "cancelled"],
         ))
 
     return kanban_data

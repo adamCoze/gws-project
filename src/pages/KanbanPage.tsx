@@ -2,20 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty } from 'antd';
 import { workItemApi } from '../services/api';
 import type { WorkItem, WorkItemStatus as WorkItemStatusType } from '../types';
+import { STATUS_LABELS, STATUS_COLORS } from '../types';
 
 const { TextArea } = Input;
 
-const statusColors: Record<string, string> = {
-  pending: 'default',
-  completed: 'success',
-  overdue: 'error',
-};
-
-const statusLabels: Record<string, string> = {
-  pending: '待处理',
-  completed: '已完成',
-  overdue: '已逾期',
-};
+const statusOrder: WorkItemStatusType[] = ['pending', 'shelved', 'completed', 'cancelled'];
 
 const KanbanPage: React.FC = () => {
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -73,13 +64,14 @@ const KanbanPage: React.FC = () => {
 
   const columns: Record<WorkItemStatusType, WorkItem[]> = {
     pending: [],
+    shelved: [],
     completed: [],
-    overdue: [],
+    cancelled: [],
   };
 
   items.forEach((item) => {
-    if (columns[item.status]) {
-      columns[item.status].push(item);
+    if (columns[item.status as WorkItemStatusType]) {
+      columns[item.status as WorkItemStatusType].push(item);
     }
   });
 
@@ -90,12 +82,12 @@ const KanbanPage: React.FC = () => {
   return (
     <div>
       <h2 style={{ marginBottom: 24 }}>工作看板</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-        {(Object.keys(columns) as WorkItemStatusType[]).map((status) => (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+        {statusOrder.map((status) => (
           <div key={status}>
             <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 16 }}>
-              {statusLabels[status]}
-              <Tag style={{ marginLeft: 8 }}>{columns[status].length}</Tag>
+              {STATUS_LABELS[status]}
+              <Tag color={STATUS_COLORS[status]} style={{ marginLeft: 8 }}>{columns[status].length}</Tag>
             </div>
             {columns[status].length === 0 ? (
               <Empty description="暂无" style={{ padding: 20 }} />
@@ -145,7 +137,7 @@ const KanbanPage: React.FC = () => {
             <Select
               value={newStatus}
               onChange={setNewStatus}
-              options={Object.entries(statusLabels).map(([k, v]) => ({ value: k, label: v }))}
+              options={statusOrder.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
             />
           </Form.Item>
           <Form.Item label="备注">
