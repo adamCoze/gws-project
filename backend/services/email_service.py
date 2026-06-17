@@ -270,7 +270,7 @@ async def _process_email(
             if completion == "completed":
                 new_status = WorkItemStatus.completed
             elif completion == "in_progress":
-                new_status = WorkItemStatus.in_progress
+                new_status = WorkItemStatus.pending
             else:
                 new_status = WorkItemStatus.pending
 
@@ -285,8 +285,6 @@ async def _process_email(
                 matching_item.assignee_email_prefix = new_prefix
                 # Also update assignee_id if single assignee
                 if new_prefix and ',' not in new_prefix and not matching_item.assignee_id:
-                    from models import User
-                    from sqlalchemy import select
                     user_result = await db.execute(
                         select(User).where(User.email_prefix == new_prefix)
                     )
@@ -295,8 +293,8 @@ async def _process_email(
                         matching_item.assignee_id = user.id
                 if due_date:
                     matching_item.due_date = due_date
-                # 状态只升级，不降级（completed > in_progress > pending）
-                status_priority = {"pending": 0, "in_progress": 1, "completed": 2, "overdue": 1}
+                # 状态只升级，不降级（completed > pending）
+                status_priority = {"pending": 0, "completed": 1, "shelved": 0, "cancelled": 0}
                 if status_priority.get(new_status.value, 0) > status_priority.get(matching_item.status.value, 0):
                     matching_item.status = new_status
                 matching_item.updated_at = datetime.utcnow()
@@ -308,8 +306,6 @@ async def _process_email(
                 # Resolve assignee_id from email_prefix (only for single assignee)
                 assignee_id = None
                 if assignee_prefix and ',' not in assignee_prefix:
-                    from models import User
-                    from sqlalchemy import select
                     user_result = await db.execute(
                         select(User).where(User.email_prefix == assignee_prefix)
                     )
