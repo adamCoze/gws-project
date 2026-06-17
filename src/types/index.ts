@@ -1,6 +1,6 @@
 export type UserRole = 'admin' | 'staff';
 export type RoleType = 'admin' | 'staff';
-export type WorkItemStatus = 'pending' | 'in_progress' | 'completed' | 'overdue';
+export type WorkItemStatus = 'pending' | 'completed' | 'overdue';
 export type WorkItemType = 'task' | 'cosign';
 export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
@@ -16,14 +16,12 @@ export const ROLE_LEVELS: Record<string, number> = {
 
 export const STATUS_LABELS: Record<string, string> = {
   pending: '待处理',
-  in_progress: '进行中',
   completed: '已完成',
   overdue: '已逾期',
 };
 
 export const STATUS_COLORS: Record<string, string> = {
   pending: 'default',
-  in_progress: 'processing',
   completed: 'success',
   overdue: 'error',
 };
@@ -51,6 +49,7 @@ export interface User {
 export interface StatusChangeLog {
   id: number;
   work_item_id: number;
+  work_item_title?: string;
   old_status?: WorkItemStatus;
   new_status: WorkItemStatus;
   changed_by?: string;

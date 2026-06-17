@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -13,6 +13,7 @@ from schemas import (
     WorkItemCreate, WorkItemUpdate, WorkItemOut,
     StatusChangeRequest, StatusChangeLogOut,
 )
+from auth import get_current_user
 
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
@@ -22,6 +23,7 @@ async def list_work_items(
     status: Optional[WorkItemStatus] = None,
     department_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
+    assignee_email_prefix: Optional[str] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -40,12 +42,44 @@ async def list_work_items(
         query = query.where(WorkItem.department_id == department_id)
     if assignee_id:
         query = query.where(WorkItem.assignee_id == assignee_id)
+    if assignee_email_prefix:
+        # 支持多个邮箱前缀（逗号分隔）
+        email_prefixes = [ep.strip() for ep in assignee_email_prefix.split(',')]
+        conditions = [WorkItem.assignee_email_prefix.contains(ep) for ep in email_prefixes]
+        query = query.where(or_(*conditions))
     if keyword:
         query = query.where(WorkItem.title.contains(keyword))
 
     query = query.order_by(WorkItem.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
 
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.get("/my", response_model=List[WorkItemOut])
+async def list_my_work_items(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取当前用户的工作项"""
+    query = select(WorkItem).options(
+        selectinload(WorkItem.department),
+        selectinload(WorkItem.assignee),
+        selectinload(WorkItem.status_logs),
+    )
+
+    # 查找分配给当前用户的工作项（通过 assignee_id 或 assignee_email_prefix）
+    conditions = []
+    if current_user.id:
+        conditions.append(WorkItem.assignee_id == current_user.id)
+    if current_user.email_prefix:
+        conditions.append(WorkItem.assignee_email_prefix.contains(current_user.email_prefix))
+
+    if conditions:
+        query = query.where(or_(*conditions))
+
+    query = query.order_by(WorkItem.created_at.desc())
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -91,7 +125,8 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
 
 @router.put("/{item_id}", response_model=WorkItemOut)
 async def update_work_item(
-    item_id: int, data: WorkItemUpdate, db: AsyncSession = Depends(get_db)
+    item_id: int, data: WorkItemUpdate, db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """更新工作项"""
     result = await db.execute(
@@ -115,7 +150,7 @@ async def update_work_item(
             work_item_id=item.id,
             old_status=item.status,
             new_status=update_data["status"],
-            operator_id=None,
+            operator_id=current_user.id,
             remark="通过编辑更新状态",
         )
         db.add(log)
@@ -142,7 +177,10 @@ async def update_work_item(
 
 @router.patch("/{item_id}/status", response_model=WorkItemOut)
 async def change_status(
-    item_id: int, data: StatusChangeRequest, db: AsyncSession = Depends(get_db)
+    item_id: int,
+    data: StatusChangeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """变更工作项状态"""
     result = await db.execute(
@@ -166,7 +204,7 @@ async def change_status(
         work_item_id=item.id,
         old_status=old_status,
         new_status=data.status,
-        operator_id=None,
+        operator_id=current_user.id,
         remark=data.remark,
     )
     db.add(log)

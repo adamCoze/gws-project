@@ -7,14 +7,12 @@ const { TextArea } = Input;
 
 const statusColors: Record<string, string> = {
   pending: 'default',
-  in_progress: 'processing',
   completed: 'success',
   overdue: 'error',
 };
 
 const statusLabels: Record<string, string> = {
   pending: '待处理',
-  in_progress: '进行中',
   completed: '已完成',
   overdue: '已逾期',
 };
@@ -75,7 +73,6 @@ const KanbanPage: React.FC = () => {
 
   const columns: Record<WorkItemStatusType, WorkItem[]> = {
     pending: [],
-    in_progress: [],
     completed: [],
     overdue: [],
   };
@@ -93,7 +90,7 @@ const KanbanPage: React.FC = () => {
   return (
     <div>
       <h2 style={{ marginBottom: 24 }}>工作看板</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         {(Object.keys(columns) as WorkItemStatusType[]).map((status) => (
           <div key={status}>
             <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 16 }}>

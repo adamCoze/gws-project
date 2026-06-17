@@ -1,8 +1,8 @@
 """Pydantic 数据模型"""
 from datetime import datetime, date
-from typing import Optional, List
+from typing import Optional, List, Any
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, model_validator
 
 from models import RoleType, WorkItemStatus, WorkItemType, EmailProcessResult
 
@@ -100,6 +100,7 @@ class StatusChangeRequest(BaseModel):
 class StatusChangeLogOut(BaseModel):
     id: int
     work_item_id: int
+    work_item_title: Optional[str] = None
     old_status: Optional[str]
     new_status: str
     operator_id: Optional[int] = None
@@ -109,6 +110,21 @@ class StatusChangeLogOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        # 从 work_item 关系中提取标题
+        if hasattr(data, 'work_item') and data.work_item:
+            if hasattr(data.work_item, 'title'):
+                data.work_item_title = data.work_item.title
+        # 从 operator 关系中提取用户名
+        if hasattr(data, 'operator') and data.operator:
+            if hasattr(data.operator, 'real_name') and data.operator.real_name:
+                data.changed_by = data.operator.real_name
+            elif hasattr(data.operator, 'username'):
+                data.changed_by = data.operator.username
+        return data
 
 
 class WorkItemOut(WorkItemBase):

@@ -34,7 +34,6 @@ UserRole = RoleType
 
 class WorkItemStatus(str, Enum):
     pending = "pending"
-    in_progress = "in_progress"
     completed = "completed"
     overdue = "overdue"
 

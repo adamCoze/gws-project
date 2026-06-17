@@ -17,7 +17,7 @@ const LoginPage: React.FC = () => {
     setLoading(true);
     try {
       const res = await authApi.login(values);
-      const { access_token, user } = res.data;
+      const { access_token, user } = res as any;
       login(access_token, user);
       message.success('登录成功');
       navigate('/dashboard');

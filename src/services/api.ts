@@ -1,9 +1,9 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, User, WorkItem, Department, EmailConfig, Holiday, StatusChangeLog, EmailLog, SystemConfig, KanbanData } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, Holiday, SystemConfig, WorkItemStatus, StatusChangeLog } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 10000,
 });
 
 // 请求拦截器 - 添加 token
@@ -15,9 +15,9 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 响应拦截器 - 处理 401
+// 响应拦截器 - 处理 401，自动解包 data
 api.interceptors.response.use(
-  (response) => response,
+  (response) => response.data,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
@@ -28,13 +28,13 @@ api.interceptors.response.use(
   }
 );
 
-// Auth API
+// Auth
 export const authApi = {
   login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
   me: () => api.get<User>('/auth/me'),
 };
 
-// Work Items API
+// Work Items
 export const workItemApi = {
   list: (params?: { department_id?: number; status?: string; assignee_email_prefix?: string }) =>
     api.get<WorkItem[]>('/work-items', { params }),
@@ -42,18 +42,24 @@ export const workItemApi = {
   create: (data: Partial<WorkItem>) => api.post<WorkItem>('/work-items', data),
   update: (id: number, data: Partial<WorkItem>) => api.put<WorkItem>(`/work-items/${id}`, data),
   delete: (id: number) => api.delete(`/work-items/${id}`),
-  updateStatus: (id: number, status: string, remark: string) =>
+  updateStatus: (id: number, status: WorkItemStatus, remark?: string) =>
     api.patch(`/work-items/${id}/status`, { status, remark }),
-  myWork: () => api.get<WorkItem[]>('/work-items/my'),
+  myWork: (emailPrefix?: string) =>
+    api.get<WorkItem[]>('/work-items', { params: { assignee_email_prefix: emailPrefix } }),
 };
 
-// Kanban API
+// Status Change Logs
+export const statusChangeLogApi = {
+  list: (workItemId?: number) =>
+    api.get<StatusChangeLog[]>('/status-change-logs', { params: { work_item_id: workItemId } }),
+};
+
+// Kanban
 export const kanbanApi = {
-  get: (params?: { department_id?: number }) =>
-    api.get<KanbanData[]>('/kanban', { params }),
+  get: (departmentId?: number) => api.get('/kanban', { params: { department_id: departmentId } }),
 };
 
-// Department API
+// Departments
 export const departmentApi = {
   list: () => api.get<Department[]>('/departments'),
   create: (data: Partial<Department>) => api.post<Department>('/departments', data),
@@ -61,26 +67,28 @@ export const departmentApi = {
   delete: (id: number) => api.delete(`/departments/${id}`),
 };
 
-// User API
+// Users
 export const userApi = {
   list: () => api.get<User[]>('/users'),
-  get: (id: number) => api.get<User>(`/users/${id}`),
-  create: (data: Partial<User> & { password: string }) => api.post<User>('/users', data),
-  update: (id: number, data: Partial<User>) => api.put<User>(`/users/${id}`, data),
+  create: (data: Partial<User> & { password?: string }) => api.post<User>('/users', data),
+  update: (id: number, data: Partial<User> & { password?: string }) => api.put<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
-  resetPassword: (id: number, password: string) => api.post(`/users/${id}/reset-password`, { password }),
 };
 
-// Email Config API
+// Email Config
 export const emailConfigApi = {
   list: () => api.get<EmailConfig[]>('/email-configs'),
-  create: (data: Partial<EmailConfig>) => api.post<EmailConfig>('/email-configs', data),
-  update: (id: number, data: Partial<EmailConfig>) => api.put<EmailConfig>(`/email-configs/${id}`, data),
+  create: (data: Partial<EmailConfig> & { password?: string }) => api.post<EmailConfig>('/email-configs', data),
+  update: (id: number, data: Partial<EmailConfig> & { password?: string }) => api.put<EmailConfig>(`/email-configs/${id}`, data),
   delete: (id: number) => api.delete(`/email-configs/${id}`),
-  test: (id: number) => api.post(`/email-configs/${id}/test`),
 };
 
-// Holiday API
+// Email Logs
+export const emailLogApi = {
+  list: () => api.get<EmailLog[]>('/email-logs'),
+};
+
+// Holidays
 export const holidayApi = {
   list: (year?: number) => api.get<Holiday[]>('/holidays', { params: { year } }),
   create: (data: Partial<Holiday>) => api.post<Holiday>('/holidays', data),
@@ -88,25 +96,8 @@ export const holidayApi = {
   delete: (id: number) => api.delete(`/holidays/${id}`),
 };
 
-// Status Change Log API
-export const statusChangeLogApi = {
-  list: (workItemId?: number) => api.get<StatusChangeLog[]>('/status-change-logs', { params: { work_item_id: workItemId } }),
-};
-
-// Email Log API
-export const emailLogApi = {
-  list: (params?: { process_result?: string; limit?: number; offset?: number }) =>
-    api.get<EmailLog[]>('/email-logs', { params }),
-  get: (id: number) => api.get<EmailLog>(`/email-logs/${id}`),
-};
-
-// System Config API
+// System Config
 export const systemConfigApi = {
-  list: () => api.get<SystemConfig[]>('/system-config'),
   get: (key: string) => api.get<SystemConfig>(`/system-config/${key}`),
-  create: (data: Partial<SystemConfig>) => api.post<SystemConfig>('/system-config', data),
-  update: (key: string, data: Partial<SystemConfig>) => api.put<SystemConfig>(`/system-config/${key}`, data),
-  delete: (key: string) => api.delete(`/system-config/${key}`),
+  set: (key: string, value: string) => api.put<SystemConfig>(`/system-config/${key}`, { config_value: value }),
 };
-
-export default api;

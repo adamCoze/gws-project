@@ -20,7 +20,10 @@ const HolidayConfigPage: React.FC = () => {
 
   const loadHolidays = async () => {
     setLoading(true);
-    try { const res = await holidayApi.list(selectedYear); setHolidays(res.data); } catch { message.error('加载节假日失败'); }
+    try {
+      const data = await holidayApi.list(selectedYear);
+      setHolidays(data);
+    } catch { message.error('加载节假日失败'); }
     finally { setLoading(false); }
   };
 

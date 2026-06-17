@@ -20,7 +20,10 @@ async def list_logs(
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_role(2)),
 ):
-    query = select(StatusChangeLog).options(selectinload(StatusChangeLog.operator))
+    query = select(StatusChangeLog).options(
+        selectinload(StatusChangeLog.operator),
+        selectinload(StatusChangeLog.work_item),
+    )
     if work_item_id:
         query = query.where(StatusChangeLog.work_item_id == work_item_id)
     query = query.order_by(StatusChangeLog.created_at.desc())

@@ -3,6 +3,7 @@ import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconf
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { userApi, departmentApi } from '../../services/api';
 import type { User, Department } from '../../types';
+import { ROLE_LABELS } from '../../types';
 
 const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -118,7 +119,7 @@ const UserManagementPage: React.FC = () => {
       key: 'role',
       render: (role: string) => (
         <Tag color={role === 'admin' ? 'red' : 'blue'}>
-          {role === 'admin' ? '管理员' : '普通用户'}
+          {ROLE_LABELS[role] || role}
         </Tag>
       ),
     },
@@ -203,7 +204,11 @@ const UserManagementPage: React.FC = () => {
           <Form.Item name="role" label="角色" initialValue="staff">
             <Select
               options={[
-                { value: 'staff', label: '普通用户' },
+                { value: 'staff', label: '专员' },
+                { value: 'manager', label: '经理' },
+                { value: 'district_manager', label: '区总' },
+                { value: 'regulator', label: '规管' },
+                { value: 'president', label: '总裁' },
                 { value: 'admin', label: '管理员' },
               ]}
             />

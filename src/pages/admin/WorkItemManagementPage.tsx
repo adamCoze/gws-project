@@ -8,14 +8,12 @@ const { TextArea } = Input;
 
 const statusLabels: Record<string, string> = {
   pending: '待处理',
-  in_progress: '进行中',
   completed: '已完成',
   overdue: '已逾期',
 };
 
 const statusColors: Record<string, string> = {
   pending: 'default',
-  in_progress: 'processing',
   completed: 'success',
   overdue: 'error',
 };

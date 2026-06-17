@@ -33,7 +33,6 @@ const DashboardPage: React.FC = () => {
   const stats = {
     total: workItems.length,
     pending: workItems.filter((i) => i.status === 'pending').length,
-    inProgress: workItems.filter((i) => i.status === 'in_progress').length,
     completed: workItems.filter((i) => i.status === 'completed').length,
     overdue: workItems.filter((i) => i.status === 'overdue').length,
   };
@@ -89,11 +88,10 @@ const DashboardPage: React.FC = () => {
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Title level={4}>我的工作 - {user?.username}</Title>
       <Row gutter={16}>
-        <Col span={5}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="进行中" value={stats.inProgress} valueStyle={{ color: '#1677ff' }} prefix={<SyncOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col span={4}><Card><Statistic title="已逾期" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+        <Col span={6}><Card><Statistic title="已逾期" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
       </Row>
       <Table columns={columns} dataSource={workItems} rowKey="id" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }} />
     </Space>
