@@ -262,7 +262,15 @@ async def _process_email(
                 db.add(dept)
                 await db.flush()
 
-            due_date = analysis.get("due_date")
+            due_date_raw = analysis.get("due_date")
+            due_date = None
+            if due_date_raw and isinstance(due_date_raw, str):
+                try:
+                    due_date = datetime.strptime(due_date_raw, "%Y-%m-%d")
+                except ValueError:
+                    due_date = None
+            elif isinstance(due_date_raw, datetime):
+                due_date = due_date_raw
             item_type = analysis.get("type", "task")
             completion = analysis.get("completion_assessment", "in_progress")
 
@@ -352,6 +360,7 @@ async def _process_email(
             logger.error(f"处理邮件失败: {error_msg}")
 
             try:
+                await db.rollback()
                 log = EmailLog(
                     message_id=message_id,
                     subject=subject,
