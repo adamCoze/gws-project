@@ -281,7 +281,18 @@ async def _process_email(
                 # 合并到已有工作项：更新内容、责任人、状态
                 logger.info(f"合并邮件到工作项 #{matching_item.id}")
                 matching_item.content = analysis.get("summary", matching_item.content)
-                matching_item.assignee_email_prefix = analysis.get("assignee_prefix", matching_item.assignee_email_prefix)
+                new_prefix = analysis.get("assignee_prefix", matching_item.assignee_email_prefix)
+                matching_item.assignee_email_prefix = new_prefix
+                # Also update assignee_id if single assignee
+                if new_prefix and ',' not in new_prefix and not matching_item.assignee_id:
+                    from models import User
+                    from sqlalchemy import select
+                    user_result = await db.execute(
+                        select(User).where(User.email_prefix == new_prefix)
+                    )
+                    user = user_result.scalar_one_or_none()
+                    if user:
+                        matching_item.assignee_id = user.id
                 if due_date:
                     matching_item.due_date = due_date
                 # 状态只升级，不降级（completed > in_progress > pending）
@@ -293,13 +304,27 @@ async def _process_email(
                 work_item_id = matching_item.id
             else:
                 # 创建新工作项
+                assignee_prefix = analysis.get("assignee_prefix")
+                # Resolve assignee_id from email_prefix (only for single assignee)
+                assignee_id = None
+                if assignee_prefix and ',' not in assignee_prefix:
+                    from models import User
+                    from sqlalchemy import select
+                    user_result = await db.execute(
+                        select(User).where(User.email_prefix == assignee_prefix)
+                    )
+                    user = user_result.scalar_one_or_none()
+                    if user:
+                        assignee_id = user.id
+
                 item = WorkItem(
                     title=analysis.get("title", subject[:100]),
                     content=analysis.get("summary", body[:500]),
                     item_type=item_type,
                     status=new_status,
                     department_id=dept.id,
-                    assignee_email_prefix=analysis.get("assignee_prefix"),
+                    assignee_id=assignee_id,
+                    assignee_email_prefix=assignee_prefix,
                     due_date=due_date,
                     is_confidential=analysis.get("is_confidential", False),
                     email_subject=subject,

@@ -14,7 +14,7 @@ from schemas import (
     StatusChangeRequest, StatusChangeLogOut,
 )
 
-router = APIRouter(prefix="/api/work-items", tags=["work-items"])
+router = APIRouter(prefix="/work-items", tags=["work-items"])
 
 
 @router.get("", response_model=List[WorkItemOut])
