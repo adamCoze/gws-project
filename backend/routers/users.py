@@ -9,9 +9,20 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models import User, Department
 from schemas import UserOut, UserCreate, UserUpdate, ResetPasswordRequest
-from auth import get_password_hash, require_role
+from auth import get_password_hash, require_role, get_current_user
 
 router = APIRouter(prefix="/users", tags=["用户管理"])
+
+
+@router.get("/brief", response_model=List[dict])
+async def list_users_brief(
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """获取用户简要列表（id+姓名），供非管理员选择负责人时使用，需登录但无角色限制"""
+    result = await db.execute(select(User).order_by(User.id))
+    users = result.scalars().all()
+    return [{"id": u.id, "real_name": u.real_name, "username": u.username, "email_prefix": u.email_prefix} for u in users]
 
 
 @router.get("", response_model=List[UserOut])

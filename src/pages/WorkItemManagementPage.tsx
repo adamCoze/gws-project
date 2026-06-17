@@ -2,15 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
-import type { WorkItem, Department, User, WorkItemStatus as WorkItemStatusType } from '../../types';
+import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType } from '../../types';
 import { STATUS_LABELS, STATUS_COLORS } from '../../types';
 
 const { TextArea } = Input;
 
+interface UserBrief {
+  id: number;
+  real_name: string;
+  username: string;
+  email_prefix: string;
+}
+
 const WorkItemManagementPage: React.FC = () => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
+  const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
@@ -22,20 +29,32 @@ const WorkItemManagementPage: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
+
+    // Fetch work items (core data)
     try {
-      const [itemsData, deptsData, usersData] = await Promise.all([
-        workItemApi.list({ page_size: 100 }),
-        departmentApi.list(),
-        userApi.list(),
-      ]);
+      const itemsData = await workItemApi.list({ page_size: 100 });
       setItems(itemsData);
+    } catch {
+      message.error('获取工作项失败');
+    }
+
+    // Fetch departments
+    try {
+      const deptsData = await departmentApi.list();
       setDepartments(deptsData);
+    } catch {
+      // Non-critical
+    }
+
+    // Fetch users brief list (low permission, works for all roles)
+    try {
+      const usersData = await userApi.listBrief();
       setUsers(usersData);
     } catch {
-      message.error('获取数据失败');
-    } finally {
-      setLoading(false);
+      // Non-critical
     }
+
+    setLoading(false);
   };
 
   useEffect(() => {

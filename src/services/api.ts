@@ -30,8 +30,10 @@ api.interceptors.response.use(
 
 // Auth
 export const authApi = {
-  login: (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data),
-  me: () => api.get<User>('/auth/me'),
+  login: (data: LoginRequest) =>
+    api.post<LoginResponse>('/auth/login', data),
+  me: () =>
+    api.get<User>('/auth/me'),
 };
 
 // Work Items
@@ -40,10 +42,14 @@ export const workItemApi = {
     const res = await api.get('/work-items', { params });
     return res as unknown as WorkItem[];
   },
-  get: (id: number) => api.get<WorkItem>(`/work-items/${id}`),
-  create: (data: Partial<WorkItem>) => api.post<WorkItem>('/work-items', data),
-  update: (id: number, data: Partial<WorkItem>) => api.put<WorkItem>(`/work-items/${id}`, data),
-  delete: (id: number) => api.delete(`/work-items/${id}`),
+  get: (id: number) =>
+    api.get<WorkItem>(`/work-items/${id}`),
+  create: (data: Partial<WorkItem>) =>
+    api.post<WorkItem>('/work-items', data),
+  update: (id: number, data: Partial<WorkItem>) =>
+    api.put<WorkItem>(`/work-items/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/work-items/${id}`),
   changeStatus: (id: number, data: { status: string; remark?: string }) =>
     api.patch(`/work-items/${id}/status`, data),
   myWork: async (emailPrefix?: string): Promise<WorkItem[]> => {
@@ -70,9 +76,12 @@ export const departmentApi = {
     const res = await api.get('/departments');
     return res as unknown as Department[];
   },
-  create: (data: Partial<Department>) => api.post<Department>('/departments', data),
-  update: (id: number, data: Partial<Department>) => api.put<Department>(`/departments/${id}`, data),
-  delete: (id: number) => api.delete(`/departments/${id}`),
+  create: (data: Partial<Department>) =>
+    api.post<Department>('/departments', data),
+  update: (id: number, data: Partial<Department>) =>
+    api.put<Department>(`/departments/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/departments/${id}`),
 };
 
 // Users
@@ -81,34 +90,52 @@ export const userApi = {
     const res = await api.get('/users');
     return res as unknown as User[];
   },
-  create: (data: Partial<User> & { password?: string }) => api.post<User>('/users', data),
-  update: (id: number, data: Partial<User> & { password?: string }) => api.put<User>(`/users/${id}`, data),
-  delete: (id: number) => api.delete(`/users/${id}`),
+  listBrief: async (): Promise<Array<{id: number; real_name: string; username: string; email_prefix: string}>> => {
+    const res = await api.get('/users/brief');
+    return res as unknown as Array<{id: number; real_name: string; username: string; email_prefix: string}>;
+  },
+  create: (data: Partial<User> & { password?: string }) =>
+    api.post<User>('/users', data),
+  update: (id: number, data: Partial<User> & { password?: string }) =>
+    api.put<User>(`/users/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/users/${id}`),
 };
 
 // Email Config
 export const emailConfigApi = {
-  list: () => api.get<EmailConfig[]>('/email-configs'),
-  create: (data: Partial<EmailConfig> & { password?: string }) => api.post<EmailConfig>('/email-configs', data),
-  update: (id: number, data: Partial<EmailConfig> & { password?: string }) => api.put<EmailConfig>(`/email-configs/${id}`, data),
-  delete: (id: number) => api.delete(`/email-configs/${id}`),
+  list: () =>
+    api.get<EmailConfig[]>('/email-configs'),
+  create: (data: Partial<EmailConfig> & { password?: string }) =>
+    api.post<EmailConfig>('/email-configs', data),
+  update: (id: number, data: Partial<EmailConfig> & { password?: string }) =>
+    api.put<EmailConfig>(`/email-configs/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/email-configs/${id}`),
 };
 
 // Email Logs
 export const emailLogApi = {
-  list: () => api.get<EmailLog[]>('/email-logs'),
+  list: () =>
+    api.get<EmailLog[]>('/email-logs'),
 };
 
 // Holidays
 export const holidayApi = {
-  list: (year?: number) => api.get<Holiday[]>('/holidays', { params: { year } }),
-  create: (data: Partial<Holiday>) => api.post<Holiday>('/holidays', data),
-  update: (id: number, data: Partial<Holiday>) => api.put<Holiday>(`/holidays/${id}`, data),
-  delete: (id: number) => api.delete(`/holidays/${id}`),
+  list: (year?: number) =>
+    api.get<Holiday[]>('/holidays', { params: { year } }),
+  create: (data: Partial<Holiday>) =>
+    api.post<Holiday>('/holidays', data),
+  update: (id: number, data: Partial<Holiday>) =>
+    api.put<Holiday>(`/holidays/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/holidays/${id}`),
 };
 
 // System Config
 export const systemConfigApi = {
-  get: (key: string) => api.get<SystemConfig>(`/system-config/${key}`),
-  set: (key: string, value: string) => api.put<SystemConfig>(`/system-config/${key}`, { config_value: value }),
+  get: (key: string) =>
+    api.get<SystemConfig>(`/system-config/${key}`),
+  set: (key: string, value: string) =>
+    api.put<SystemConfig>(`/system-config/${key}`, { config_value: value }),
 };
