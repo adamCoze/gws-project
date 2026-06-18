@@ -244,6 +244,34 @@ async def update_work_item(
     for key, value in update_data.items():
         setattr(item, key, value)
 
+    # Sync assignee_id and assignee_email_prefix for consistency
+    if "assignee_email_prefix" in update_data and "assignee_id" not in update_data:
+        # assignee_email_prefix was updated but assignee_id wasn't → sync from first prefix
+        if item.assignee_email_prefix:
+            first_prefix = item.assignee_email_prefix.replace(' ', ',').split(',')[0].strip()
+            if first_prefix:
+                user_result = await db.execute(
+                    select(User.id).where(User.email_prefix == first_prefix)
+                )
+                user_row = user_result.first()
+                if user_row:
+                    item.assignee_id = user_row[0]
+                else:
+                    item.assignee_id = None
+        else:
+            item.assignee_id = None
+    elif "assignee_id" in update_data and "assignee_email_prefix" not in update_data:
+        # assignee_id was updated but assignee_email_prefix wasn't → sync from user
+        if item.assignee_id:
+            user_result = await db.execute(
+                select(User.email_prefix).where(User.id == item.assignee_id)
+            )
+            user_row = user_result.first()
+            if user_row:
+                item.assignee_email_prefix = user_row[0]
+        else:
+            item.assignee_email_prefix = None
+
     item.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(item)
