@@ -309,7 +309,7 @@ async def _process_email(
                     matching_item.due_date = due_date
                 # 状态只升级，不降级（completed > pending）
                 status_priority = {"pending": 0, "completed": 1, "cancelled": 0}
-                if status_priority.get(new_status.value, 0) > status_priority.get(matching_item.status.value, 0):
+                if status_priority.get(new_status.value, 0) > status_priority.get(matching_item.status, 0):
                     matching_item.status = new_status
                 matching_item.updated_at = datetime.utcnow()
 
