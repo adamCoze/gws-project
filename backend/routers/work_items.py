@@ -62,8 +62,7 @@ async def _resolve_assignee_names(db: AsyncSession, items: list) -> None:
             for p in prefixes:
                 if p in prefix_to_name:
                     names.append(prefix_to_name[p])
-                else:
-                    names.append(p)
+                # 未匹配的前缀跳过不显示
             item.assignee_names = ', '.join(names) if names else None
         elif item.assignee and hasattr(item.assignee, 'real_name') and item.assignee.real_name:
             item.assignee_names = item.assignee.real_name
