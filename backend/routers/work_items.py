@@ -269,8 +269,15 @@ async def get_status_logs(item_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
-    """删除工作项"""
+async def delete_work_item(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除工作项 - 仅管理员和总裁可操作"""
+    user_role = RoleType(current_user.role) if isinstance(current_user.role, str) else current_user.role
+    if user_role not in {RoleType.admin, RoleType.president}:
+        raise HTTPException(status_code=403, detail="无权限删除工作项，仅管理员和总裁可操作")
     result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
     item = result.scalar_one_or_none()
     if not item:

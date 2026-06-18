@@ -41,6 +41,12 @@ const WorkItemManagementPage: React.FC = () => {
   const [remark, setRemark] = useState('');
   const { user } = useAuth();
 
+  const canDelete = useMemo(() => {
+    if (!user) return false;
+    const level = ROLE_LEVELS[user.role as RoleType] || 0;
+    return level >= 5; // admin(6) and president(5)
+  }, [user]);
+
   const canChange = useMemo(() => {
     if (!user) return false;
     return canChangeStatus(user.role, user.department_id);
@@ -190,9 +196,11 @@ const WorkItemManagementPage: React.FC = () => {
             <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
           )}
           <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-          </Popconfirm>
+          {canDelete && (
+            <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+              <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+            </Popconfirm>
+          )}
         </Space>
       ),
     },
