@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge } from 'antd';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge, Space } from 'antd';
 import { kanbanApi, workItemApi, departmentApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
@@ -101,7 +101,6 @@ const KanbanPage: React.FC = () => {
     return '未分配';
   };
 
-  // Need to import workItemApi for changeStatus
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
