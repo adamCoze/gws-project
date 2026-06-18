@@ -76,7 +76,13 @@ async def list_work_items(
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
-    return result.scalars().all()
+    items = result.scalars().all()
+    # 计算派生状态：pending 且过期 → overdue
+    now = datetime.utcnow()
+    for item in items:
+        if item.status == "pending" and item.due_date and item.due_date < now:
+            item.status = "overdue"
+    return items
 
 
 @router.get("/my", response_model=List[WorkItemOut])
@@ -104,7 +110,13 @@ async def list_my_work_items(
 
     query = query.order_by(WorkItem.created_at.desc())
     result = await db.execute(query)
-    return result.scalars().all()
+    items = result.scalars().all()
+    # 计算派生状态：pending 且过期 → overdue
+    now = datetime.utcnow()
+    for item in items:
+        if item.status == "pending" and item.due_date and item.due_date < now:
+            item.status = "overdue"
+    return items
 
 
 @router.get("/{item_id}", response_model=WorkItemOut)
@@ -123,6 +135,10 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
+    # 计算派生状态：pending 且过期 → overdue
+    now = datetime.utcnow()
+    if item.status == "pending" and item.due_date and item.due_date < now:
+        item.status = "overdue"
     return item
 
 
@@ -145,7 +161,11 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
         )
         .where(WorkItem.id == item.id)
     )
-    return result.scalar_one()
+    item = result.scalar_one()
+    now = datetime.utcnow()
+    if item.status == "pending" and item.due_date and item.due_date < now:
+        item.status = "overdue"
+    return item
 
 
 @router.put("/{item_id}", response_model=WorkItemOut)
@@ -170,9 +190,11 @@ async def update_work_item(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # 如果状态变更，检查权限；无权限则静默忽略状态字段
+    # 如果状态变更，检查权限；无权限或尝试设置overdue则静默忽略状态字段
     if "status" in update_data and update_data["status"] != item.status:
-        if not can_change_status(current_user):
+        if update_data["status"] == "overdue":
+            update_data.pop("status", None)
+        elif not can_change_status(current_user):
             update_data.pop("status", None)
         else:
             log = StatusChangeLog(
@@ -202,7 +224,11 @@ async def update_work_item(
         )
         .where(WorkItem.id == item.id)
     )
-    return result.scalar_one()
+    item = result.scalar_one()
+    now = datetime.utcnow()
+    if item.status == "pending" and item.due_date and item.due_date < now:
+        item.status = "overdue"
+    return item
 
 
 @router.patch("/{item_id}/status", response_model=WorkItemOut)
@@ -215,6 +241,8 @@ async def change_status(
     """变更工作项状态"""
     if not can_change_status(current_user):
         raise HTTPException(status_code=403, detail="无权限变更工作项状态，仅规管、总裁、管理员及人事/商务部经理/专员可操作")
+    if data.status == "overdue":
+        raise HTTPException(status_code=400, detail="已逾时是系统自动状态，不可手动设置")
     result = await db.execute(
         select(WorkItem)
         .options(
@@ -254,7 +282,11 @@ async def change_status(
         )
         .where(WorkItem.id == item.id)
     )
-    return result.scalar_one()
+    item = result.scalar_one()
+    now = datetime.utcnow()
+    if item.status == "pending" and item.due_date and item.due_date < now:
+        item.status = "overdue"
+    return item
 
 
 @router.get("/{item_id}/status-logs", response_model=List[StatusChangeLogOut])

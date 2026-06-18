@@ -11,7 +11,7 @@ const { Text } = Typography;
 // 人事/商务部ID
 const HR_COMMERCE_DEPT_ID = 1;
 
-const statusOrder: WorkItemStatusType[] = ['pending', 'shelved', 'completed', 'cancelled'];
+const statusOrder: WorkItemStatusType[] = ['pending', 'overdue', 'completed', 'cancelled'];
 
 function canChangeStatus(role: string, departmentId?: number | null): boolean {
   const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
@@ -89,7 +89,7 @@ const KanbanPage: React.FC = () => {
 
   const columns: Record<WorkItemStatusType, WorkItem[]> = {
     pending: [],
-    shelved: [],
+    overdue: [],
     completed: [],
     cancelled: [],
   };
@@ -163,7 +163,7 @@ const KanbanPage: React.FC = () => {
             <Select
               value={newStatus}
               onChange={setNewStatus}
-              options={statusOrder.map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
+              options={statusOrder.filter((s) => s !== 'overdue').map((s) => ({ value: s, label: STATUS_LABELS[s] }))}
             />
           </Form.Item>
           <Form.Item label="备注">

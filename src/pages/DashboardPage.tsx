@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, PauseCircleOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { workItemApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
@@ -34,7 +34,7 @@ const DashboardPage: React.FC = () => {
     total: workItems.length,
     pending: workItems.filter((i) => i.status === 'pending').length,
     completed: workItems.filter((i) => i.status === 'completed').length,
-    shelved: workItems.filter((i) => i.status === 'shelved').length,
+    overdue: workItems.filter((i) => i.status === 'overdue').length,
     cancelled: workItems.filter((i) => i.status === 'cancelled').length,
   };
 
@@ -92,7 +92,7 @@ const DashboardPage: React.FC = () => {
         <Col span={5}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
         <Col span={5}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
         <Col span={5}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="暂时搁置" value={stats.shelved} valueStyle={{ color: '#fa8c16' }} prefix={<PauseCircleOutlined />} /></Card></Col>
+        <Col span={5}><Card><Statistic title="已逾时" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
         <Col span={4}><Card><Statistic title="不再进行" value={stats.cancelled} valueStyle={{ color: '#999' }} prefix={<StopOutlined />} /></Card></Col>
       </Row>
       <Table columns={columns} dataSource={workItems} rowKey="id" pagination={{ pageSize: 15, showSizeChanger: true, showTotal: (t) => `共 ${t} 条` }} />

@@ -1,5 +1,6 @@
 """看板路由"""
 from typing import List, Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,11 +52,18 @@ async def get_kanban(
         item_result = await db.execute(item_query)
         items = item_result.scalars().all()
 
+        now = datetime.utcnow()
+        def _effective_status(i):
+            """计算实际显示状态：pending 且过期 → overdue"""
+            if i.status == "pending" and i.due_date and i.due_date < now:
+                return "overdue"
+            return i.status
+
         kanban_data.append(KanbanDeptData(
             department_id=dept.id,
             department_name=dept.name,
-            pending=[WorkItemOut.model_validate(i) for i in items if i.status == "pending"],
-            shelved=[WorkItemOut.model_validate(i) for i in items if i.status == "shelved"],
+            pending=[WorkItemOut.model_validate(i) for i in items if _effective_status(i) == "pending"],
+            overdue=[WorkItemOut.model_validate(i) for i in items if _effective_status(i) == "overdue"],
             completed=[WorkItemOut.model_validate(i) for i in items if i.status == "completed"],
             cancelled=[WorkItemOut.model_validate(i) for i in items if i.status == "cancelled"],
         ))

@@ -152,7 +152,7 @@ class KanbanDeptData(BaseModel):
     department_id: int
     department_name: str
     pending: List[WorkItemOut] = []
-    shelved: List[WorkItemOut] = []
+    overdue: List[WorkItemOut] = []
     completed: List[WorkItemOut] = []
     cancelled: List[WorkItemOut] = []
 

@@ -1,6 +1,6 @@
 export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff';
 export type RoleType = UserRole;
-export type WorkItemStatus = 'pending' | 'completed' | 'shelved' | 'cancelled';
+export type WorkItemStatus = 'pending' | 'completed' | 'overdue' | 'cancelled';
 export type WorkItemType = 'task' | 'cosign';
 export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
@@ -25,14 +25,14 @@ export const ROLE_LEVELS: Record<string, number> = {
 export const STATUS_LABELS: Record<string, string> = {
   pending: '待处理',
   completed: '已完成',
-  shelved: '暂时搁置',
+  overdue: '已逾时',
   cancelled: '不再进行',
 };
 
 export const STATUS_COLORS: Record<string, string> = {
   pending: 'default',
   completed: 'success',
-  shelved: 'warning',
+  overdue: 'error',
   cancelled: 'default',
 };
 

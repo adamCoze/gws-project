@@ -160,7 +160,7 @@ const WorkItemManagementPage: React.FC = () => {
     return '未分配';
   };
 
-  const statusOptions = Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v }));
+  const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
