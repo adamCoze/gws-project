@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Avatar, Dropdown, Space, Typography } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Space, Typography, Modal, Input, Form, message } from 'antd';
 import {
   DashboardOutlined,
   ProjectOutlined,
@@ -13,17 +13,22 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   UnorderedListOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from './AuthProvider';
 import { ROLE_LABELS, ROLE_LEVELS } from '../types';
 import type { RoleType } from '../types';
+import { authApi } from '../services/api';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [passwordForm] = Form.useForm();
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
@@ -54,6 +59,16 @@ const MainLayout: React.FC = () => {
 
   const userMenuItems: MenuProps['items'] = [
     {
+      key: 'change-password',
+      icon: <KeyOutlined />,
+      label: '修改密码',
+      onClick: () => {
+        passwordForm.resetFields();
+        setPasswordModalOpen(true);
+      },
+    },
+    { type: 'divider' },
+    {
       key: 'logout',
       icon: <LogoutOutlined />,
       label: '退出登录',
@@ -63,6 +78,26 @@ const MainLayout: React.FC = () => {
       },
     },
   ];
+
+  const handlePasswordSubmit = async () => {
+    try {
+      const values = await passwordForm.validateFields();
+      setSubmitting(true);
+      await authApi.changePassword({
+        current_password: values.current_password,
+        new_password: values.new_password,
+      });
+      message.success('密码修改成功');
+      setPasswordModalOpen(false);
+      passwordForm.resetFields();
+    } catch (error: any) {
+      if (error?.errorFields) return; // form validation error, not an API error
+      const detail = error?.response?.data?.detail || '密码修改失败';
+      message.error(detail);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -101,6 +136,55 @@ const MainLayout: React.FC = () => {
           <Outlet />
         </Content>
       </Layout>
+
+      <Modal
+        title="修改密码"
+        open={passwordModalOpen}
+        onOk={handlePasswordSubmit}
+        onCancel={() => setPasswordModalOpen(false)}
+        confirmLoading={submitting}
+        okText="确认修改"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={passwordForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item
+            name="current_password"
+            label="当前密码"
+            rules={[{ required: true, message: '请输入当前密码' }]}
+          >
+            <Input.Password placeholder="请输入当前密码" />
+          </Form.Item>
+          <Form.Item
+            name="new_password"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '密码长度不能少于6位' },
+            ]}
+          >
+            <Input.Password placeholder="请输入新密码（至少6位）" />
+          </Form.Item>
+          <Form.Item
+            name="confirm_password"
+            label="确认新密码"
+            dependencies={['new_password']}
+            rules={[
+              { required: true, message: '请确认新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('new_password') === value) {
+                    return Promise.resolve();
+                  }
+                  return Promise.reject(new Error('两次输入的密码不一致'));
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="请再次输入新密码" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   );
 };
