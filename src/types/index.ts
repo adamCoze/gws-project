@@ -77,6 +77,7 @@ export interface WorkItem {
   department_id?: number;
   assignee_id?: number;
   assignee_email_prefix?: string;
+  assignee_names?: string;
   due_date?: string;
   is_confidential: boolean;
   email_subject?: string;

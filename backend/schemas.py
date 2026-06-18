@@ -136,6 +136,7 @@ class WorkItemOut(WorkItemBase):
     email_from: Optional[str] = None
     email_date: Optional[datetime] = None
     latest_progress: Optional[str] = None
+    assignee_names: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     department: Optional[DepartmentOut] = None

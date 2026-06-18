@@ -38,6 +38,38 @@ def can_change_status(user: User) -> bool:
         return True
     return False
 
+async def _resolve_assignee_names(db: AsyncSession, items: list) -> None:
+    """Resolve assignee_email_prefix to real names, set as assignee_names attribute."""
+    all_prefixes = set()
+    for item in items:
+        if item.assignee_email_prefix:
+            raw = item.assignee_email_prefix.replace(' ', ',')
+            prefixes = [p.strip() for p in raw.split(',') if p.strip()]
+            all_prefixes.update(prefixes)
+    
+    prefix_to_name = {}
+    if all_prefixes:
+        result = await db.execute(
+            select(User.email_prefix, User.real_name).where(User.email_prefix.in_(list(all_prefixes)))
+        )
+        prefix_to_name = {row[0]: row[1] for row in result.all() if row[1]}
+    
+    for item in items:
+        if item.assignee_email_prefix:
+            raw = item.assignee_email_prefix.replace(' ', ',')
+            prefixes = [p.strip() for p in raw.split(',') if p.strip()]
+            names = []
+            for p in prefixes:
+                if p in prefix_to_name:
+                    names.append(prefix_to_name[p])
+                else:
+                    names.append(p)
+            item.assignee_names = ', '.join(names) if names else None
+        elif item.assignee and hasattr(item.assignee, 'real_name') and item.assignee.real_name:
+            item.assignee_names = item.assignee.real_name
+        else:
+            item.assignee_names = None
+
 
 @router.get("", response_model=List[WorkItemOut])
 async def list_work_items(
@@ -82,6 +114,7 @@ async def list_work_items(
     for item in items:
         if item.status == "pending" and item.due_date and item.due_date < now:
             item.status = "overdue"
+    await _resolve_assignee_names(db, items)
     return items
 
 
@@ -116,6 +149,7 @@ async def list_my_work_items(
     for item in items:
         if item.status == "pending" and item.due_date and item.due_date < now:
             item.status = "overdue"
+    await _resolve_assignee_names(db, items)
     return items
 
 
@@ -139,6 +173,7 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
         item.status = "overdue"
+    await _resolve_assignee_names(db, [item])
     return item
 
 
@@ -165,6 +200,7 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
         item.status = "overdue"
+    await _resolve_assignee_names(db, [item])
     return item
 
 
@@ -228,6 +264,7 @@ async def update_work_item(
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
         item.status = "overdue"
+    await _resolve_assignee_names(db, [item])
     return item
 
 
@@ -286,6 +323,7 @@ async def change_status(
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
         item.status = "overdue"
+    await _resolve_assignee_names(db, [item])
     return item
 
 

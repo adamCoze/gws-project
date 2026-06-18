@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models import WorkItem, Department, User, WorkItemStatus, StatusChangeLog
 from schemas import KanbanDeptData, WorkItemOut
+from routers.work_items import _resolve_assignee_names
 from auth import get_current_user, ROLE_LEVELS
 
 router = APIRouter(prefix="/kanban", tags=["看板"])
@@ -51,6 +52,7 @@ async def get_kanban(
             )
         item_result = await db.execute(item_query)
         items = item_result.scalars().all()
+        await _resolve_assignee_names(db, items)
 
         now = datetime.utcnow()
         def _effective_status(i):

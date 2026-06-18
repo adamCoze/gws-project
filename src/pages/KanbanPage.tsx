@@ -82,6 +82,7 @@ const KanbanPage: React.FC = () => {
   };
 
   const getAssigneeName = (item: WorkItem): string => {
+    if (item.assignee_names) return item.assignee_names;
     if (item.assignee?.real_name) return item.assignee.real_name;
     if (item.assignee_email_prefix) return item.assignee_email_prefix;
     return '未分配';
