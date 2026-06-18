@@ -13,7 +13,8 @@ from schemas import (
     WorkItemCreate, WorkItemUpdate, WorkItemOut,
     StatusChangeRequest, StatusChangeLogOut,
 )
-from auth import get_current_user
+from auth import get_current_user, ROLE_LEVELS
+from models import RoleType
 
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
@@ -181,6 +182,27 @@ async def update_work_item(
     return result.scalar_one()
 
 
+# 人事/商务部ID
+HR_COMMERCE_DEPT_ID = 1
+
+# 允许变更状态的角色
+STATUS_CHANGE_ROLES = {RoleType.regulator, RoleType.president, RoleType.admin}
+# 人事/商务部中允许变更状态的角色
+HR_COMMERCE_ALLOWED = {RoleType.manager, RoleType.staff}
+
+
+def can_change_status(user: User) -> bool:
+    """检查用户是否有权限变更工作项状态"""
+    user_role = RoleType(user.role) if isinstance(user.role, str) else user.role
+    # 规管、总裁、管理员始终可以
+    if user_role in STATUS_CHANGE_ROLES:
+        return True
+    # 人事/商务部的经理和专员可以
+    if user_role in HR_COMMERCE_ALLOWED and user.department_id == HR_COMMERCE_DEPT_ID:
+        return True
+    return False
+
+
 @router.patch("/{item_id}/status", response_model=WorkItemOut)
 async def change_status(
     item_id: int,
@@ -189,6 +211,8 @@ async def change_status(
     current_user: User = Depends(get_current_user),
 ):
     """变更工作项状态"""
+    if not can_change_status(current_user):
+        raise HTTPException(status_code=403, detail="无权限变更工作项状态，仅规管、总裁、管理员及人事/商务部经理/专员可操作")
     result = await db.execute(
         select(WorkItem)
         .options(

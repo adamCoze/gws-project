@@ -1,17 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
-import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType } from '../../types';
-import { STATUS_LABELS, STATUS_COLORS } from '../../types';
+import { useAuth } from '../../components/AuthProvider';
+import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../../types';
 
 const { TextArea } = Input;
+
+// 人事/商务部ID
+const HR_COMMERCE_DEPT_ID = 1;
 
 interface UserBrief {
   id: number;
   real_name: string;
   username: string;
   email_prefix: string;
+}
+
+function canChangeStatus(role: string, departmentId?: number | null): boolean {
+  const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
+  // 规管(4)、总裁(5)、管理员(6)始终可以
+  if (roleLevel >= 4) return true;
+  // 人事/商务部 经理(2)和专员(1)可以
+  if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1 && roleLevel <= 2) return true;
+  return false;
 }
 
 const WorkItemManagementPage: React.FC = () => {
@@ -26,6 +39,12 @@ const WorkItemManagementPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
   const [remark, setRemark] = useState('');
+  const { user } = useAuth();
+
+  const canChange = useMemo(() => {
+    if (!user) return false;
+    return canChangeStatus(user.role, user.department_id);
+  }, [user]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -52,7 +71,7 @@ const WorkItemManagementPage: React.FC = () => {
       const usersData = await userApi.listBrief();
       setUsers(usersData);
     } catch (e) {
-      console.error('Failed to fetch users brief:', e);
+      console.error('Failed to fetch users:', e);
     }
 
     setLoading(false);
@@ -167,7 +186,9 @@ const WorkItemManagementPage: React.FC = () => {
       title: '操作', key: 'action', width: 250,
       render: (_: unknown, record: WorkItem) => (
         <Space>
-          <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
+          {canChange && (
+            <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
+          )}
           <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
             <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
