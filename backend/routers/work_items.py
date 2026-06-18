@@ -18,6 +18,26 @@ from models import RoleType
 
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
+# 人事/商务部ID
+HR_COMMERCE_DEPT_ID = 1
+
+# 允许变更状态的角色
+STATUS_CHANGE_ROLES = {RoleType.regulator, RoleType.president, RoleType.admin}
+# 人事/商务部中允许变更状态的角色
+HR_COMMERCE_ALLOWED = {RoleType.manager, RoleType.staff}
+
+
+def can_change_status(user: User) -> bool:
+    """检查用户是否有权限变更工作项状态"""
+    user_role = RoleType(user.role) if isinstance(user.role, str) else user.role
+    # 规管、总裁、管理员始终可以
+    if user_role in STATUS_CHANGE_ROLES:
+        return True
+    # 人事/商务部的经理和专员可以
+    if user_role in HR_COMMERCE_ALLOWED and user.department_id == HR_COMMERCE_DEPT_ID:
+        return True
+    return False
+
 
 @router.get("", response_model=List[WorkItemOut])
 async def list_work_items(
@@ -150,16 +170,19 @@ async def update_work_item(
 
     update_data = data.model_dump(exclude_unset=True)
 
-    # 如果状态变更，记录日志
+    # 如果状态变更，检查权限；无权限则静默忽略状态字段
     if "status" in update_data and update_data["status"] != item.status:
-        log = StatusChangeLog(
-            work_item_id=item.id,
-            old_status=item.status,
-            new_status=update_data["status"],
-            operator_id=current_user.id,
-            remark="通过编辑更新状态",
-        )
-        db.add(log)
+        if not can_change_status(current_user):
+            update_data.pop("status", None)
+        else:
+            log = StatusChangeLog(
+                work_item_id=item.id,
+                old_status=item.status,
+                new_status=update_data["status"],
+                operator_id=current_user.id,
+                remark="通过编辑更新状态",
+            )
+            db.add(log)
 
     for key, value in update_data.items():
         setattr(item, key, value)
@@ -180,27 +203,6 @@ async def update_work_item(
         .where(WorkItem.id == item.id)
     )
     return result.scalar_one()
-
-
-# 人事/商务部ID
-HR_COMMERCE_DEPT_ID = 1
-
-# 允许变更状态的角色
-STATUS_CHANGE_ROLES = {RoleType.regulator, RoleType.president, RoleType.admin}
-# 人事/商务部中允许变更状态的角色
-HR_COMMERCE_ALLOWED = {RoleType.manager, RoleType.staff}
-
-
-def can_change_status(user: User) -> bool:
-    """检查用户是否有权限变更工作项状态"""
-    user_role = RoleType(user.role) if isinstance(user.role, str) else user.role
-    # 规管、总裁、管理员始终可以
-    if user_role in STATUS_CHANGE_ROLES:
-        return True
-    # 人事/商务部的经理和专员可以
-    if user_role in HR_COMMERCE_ALLOWED and user.department_id == HR_COMMERCE_DEPT_ID:
-        return True
-    return False
 
 
 @router.patch("/{item_id}/status", response_model=WorkItemOut)

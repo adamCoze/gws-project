@@ -1,20 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty } from 'antd';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions } from 'antd';
 import { workItemApi } from '../services/api';
-import type { WorkItem, WorkItemStatus as WorkItemStatusType } from '../types';
-import { STATUS_LABELS, STATUS_COLORS } from '../types';
+import { useAuth } from '../components/AuthProvider';
+import type { WorkItem, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
 
 const { TextArea } = Input;
+const { Text } = Typography;
+
+// 人事/商务部ID
+const HR_COMMERCE_DEPT_ID = 1;
 
 const statusOrder: WorkItemStatusType[] = ['pending', 'shelved', 'completed', 'cancelled'];
 
+function canChangeStatus(role: string, departmentId?: number | null): boolean {
+  const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
+  // 规管(4)、总裁(5)、管理员(6)始终可以
+  if (roleLevel >= 4) return true;
+  // 人事/商务部 经理(2)和专员(1)可以
+  if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1 && roleLevel <= 2) return true;
+  return false;
+}
+
 const KanbanPage: React.FC = () => {
+  const { user } = useAuth();
   const [items, setItems] = useState<WorkItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
+  const [detailModal, setDetailModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const hasPermission = useMemo(() => {
+    if (!user) return false;
+    return canChangeStatus(user.role, user.department_id);
+  }, [user]);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -33,9 +54,13 @@ const KanbanPage: React.FC = () => {
   }, []);
 
   const openStatusModal = (item: WorkItem) => {
-    setStatusModal({ visible: true, item });
-    setNewStatus(item.status);
-    setRemark('');
+    if (hasPermission) {
+      setStatusModal({ visible: true, item });
+      setNewStatus(item.status);
+      setRemark('');
+    } else {
+      setDetailModal({ visible: true, item });
+    }
   };
 
   const handleStatusChange = async () => {
@@ -96,8 +121,8 @@ const KanbanPage: React.FC = () => {
                 <Card
                   key={item.id}
                   size="small"
-                  style={{ marginBottom: 8, cursor: 'pointer' }}
-                  hoverable
+                  style={{ marginBottom: 8, cursor: hasPermission ? 'pointer' : 'default' }}
+                  hoverable={hasPermission}
                   onClick={() => openStatusModal(item)}
                 >
                   <div style={{ fontWeight: 500, marginBottom: 4 }}>{item.title}</div>
@@ -125,6 +150,7 @@ const KanbanPage: React.FC = () => {
         ))}
       </div>
 
+      {/* 有权限：状态变更弹窗 */}
       <Modal
         title={`变更状态 - ${statusModal.item?.title}`}
         open={statusModal.visible}
@@ -149,6 +175,44 @@ const KanbanPage: React.FC = () => {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 无权限：只读详情弹窗 */}
+      <Modal
+        title={`工作项详情 - ${detailModal.item?.title}`}
+        open={detailModal.visible}
+        onCancel={() => setDetailModal({ visible: false })}
+        footer={null}
+        width={600}
+      >
+        {detailModal.item && (
+          <div>
+            <Descriptions bordered column={1} size="small">
+              <Descriptions.Item label="标题">{detailModal.item.title}</Descriptions.Item>
+              <Descriptions.Item label="状态">
+                <Tag color={STATUS_COLORS[detailModal.item.status]}>
+                  {STATUS_LABELS[detailModal.item.status]}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="类型">
+                <Tag color={detailModal.item.item_type === 'cosign' ? 'purple' : 'blue'}>
+                  {detailModal.item.item_type === 'cosign' ? '会签' : '任务'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="部门">{detailModal.item.department?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="负责人">{getAssigneeName(detailModal.item)}</Descriptions.Item>
+              <Descriptions.Item label="截止日期">
+                {detailModal.item.due_date ? new Date(detailModal.item.due_date).toLocaleDateString() : '-'}
+              </Descriptions.Item>
+              {detailModal.item.content && (
+                <Descriptions.Item label="内容">{detailModal.item.content}</Descriptions.Item>
+              )}
+            </Descriptions>
+            <div style={{ marginTop: 16 }}>
+              <Text type="warning">您没有权限变更状态，请联系管理员或规管。</Text>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -222,7 +222,7 @@ const WorkItemManagementPage: React.FC = () => {
             <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
-            <Select options={statusOptions} />
+            <Select options={statusOptions} disabled={!!editingItem && !canChange} />
           </Form.Item>
           <Form.Item name="department_id" label="部门">
             <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
