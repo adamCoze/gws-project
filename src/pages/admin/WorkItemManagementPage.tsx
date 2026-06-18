@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
@@ -20,9 +20,7 @@ interface UserBrief {
 
 function canChangeStatus(role: string, departmentId?: number | null): boolean {
   const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
-  // 规管(4)、总裁(5)、管理员(6)始终可以
   if (roleLevel >= 4) return true;
-  // 人事/商务部 经理(2)和专员(1)可以
   if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1 && roleLevel <= 2) return true;
   return false;
 }
@@ -41,10 +39,18 @@ const WorkItemManagementPage: React.FC = () => {
   const [remark, setRemark] = useState('');
   const { user } = useAuth();
 
+  // Filter state
+  const [filterType, setFilterType] = useState<string | undefined>(undefined);
+  const [filterDept, setFilterDept] = useState<number | undefined>(undefined);
+  const [filterAssignee, setFilterAssignee] = useState<number | undefined>(undefined);
+
+  // Sort state
+  const [sortDueDate, setSortDueDate] = useState<'asc' | 'desc' | null>(null);
+
   const canDelete = useMemo(() => {
     if (!user) return false;
     const level = ROLE_LEVELS[user.role as RoleType] || 0;
-    return level >= 5; // admin(6) and president(5)
+    return level >= 5;
   }, [user]);
 
   const canChange = useMemo(() => {
@@ -54,8 +60,6 @@ const WorkItemManagementPage: React.FC = () => {
 
   const fetchData = async () => {
     setLoading(true);
-
-    // Fetch work items (core data) - independent request
     try {
       const itemsData = await workItemApi.list({ page_size: 100 });
       setItems(itemsData);
@@ -64,7 +68,6 @@ const WorkItemManagementPage: React.FC = () => {
       message.error('获取工作项失败');
     }
 
-    // Fetch departments - independent request, non-critical
     try {
       const deptsData = await departmentApi.list();
       setDepartments(deptsData);
@@ -72,7 +75,6 @@ const WorkItemManagementPage: React.FC = () => {
       console.error('Failed to fetch departments:', e);
     }
 
-    // Fetch users brief list (low permission, works for all roles) - independent request
     try {
       const usersData = await userApi.listBrief();
       setUsers(usersData);
@@ -87,12 +89,41 @@ const WorkItemManagementPage: React.FC = () => {
     fetchData();
   }, []);
 
-  // Resolve assignee IDs from work item's assignee_email_prefix or assignee_id
+  // Filtered and sorted items
+  const displayItems = useMemo(() => {
+    let result = [...items];
+
+    if (filterType) {
+      result = result.filter((i) => i.item_type === filterType);
+    }
+    if (filterDept) {
+      result = result.filter((i) => i.department_id === filterDept);
+    }
+    if (filterAssignee) {
+      const assigneeUser = users.find((u) => u.id === filterAssignee);
+      if (assigneeUser) {
+        result = result.filter((i) =>
+          i.assignee_id === filterAssignee ||
+          (i.assignee_email_prefix && i.assignee_email_prefix.includes(assigneeUser.email_prefix))
+        );
+      }
+    }
+    if (sortDueDate) {
+      result.sort((a, b) => {
+        const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+        const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+        return sortDueDate === 'asc' ? da - db : db - da;
+      });
+    }
+
+    return result;
+  }, [items, filterType, filterDept, filterAssignee, sortDueDate, users]);
+
   const resolveAssigneeIds = (item: WorkItem): number[] => {
     if (item.assignee_email_prefix) {
-      const prefixes = item.assignee_email_prefix.replace(/ /g, ',').split(',').map(s => s.trim()).filter(Boolean);
+      const prefixes = item.assignee_email_prefix.replace(/ /g, ',').split(',').map((s) => s.trim()).filter(Boolean);
       return prefixes
-        .map(prefix => users.find(u => u.email_prefix === prefix)?.id)
+        .map((prefix) => users.find((u) => u.email_prefix === prefix)?.id)
         .filter((id): id is number => id !== undefined);
     }
     if (item.assignee_id) {
@@ -127,10 +158,9 @@ const WorkItemManagementPage: React.FC = () => {
       const values = await form.validateFields();
       setSubmitting(true);
 
-      // Convert assignee_ids to assignee_email_prefix and assignee_id
       const assigneeIds: number[] = values.assignee_ids || [];
       const selectedUsers = assigneeIds
-        .map((id: number) => users.find(u => u.id === id))
+        .map((id: number) => users.find((u) => u.id === id))
         .filter((u): u is UserBrief => u !== undefined);
 
       const submitData: Record<string, unknown> = {
@@ -141,7 +171,7 @@ const WorkItemManagementPage: React.FC = () => {
         department_id: values.department_id,
         due_date: values.due_date,
         is_confidential: values.is_confidential,
-        assignee_email_prefix: selectedUsers.length > 0 ? selectedUsers.map(u => u.email_prefix).join(',') : null,
+        assignee_email_prefix: selectedUsers.length > 0 ? selectedUsers.map((u) => u.email_prefix).join(',') : null,
         assignee_id: selectedUsers.length > 0 ? selectedUsers[0].id : null,
       };
 
@@ -204,6 +234,21 @@ const WorkItemManagementPage: React.FC = () => {
 
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
+  const toggleSortDueDate = () => {
+    if (sortDueDate === null) setSortDueDate('asc');
+    else if (sortDueDate === 'asc') setSortDueDate('desc');
+    else setSortDueDate(null);
+  };
+
+  const clearFilters = () => {
+    setFilterType(undefined);
+    setFilterDept(undefined);
+    setFilterAssignee(undefined);
+    setSortDueDate(null);
+  };
+
+  const hasActiveFilters = filterType || filterDept || filterAssignee || sortDueDate;
+
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     {
@@ -255,7 +300,69 @@ const WorkItemManagementPage: React.FC = () => {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新建工作项</Button>
       </div>
 
-      <Table columns={columns} dataSource={items} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} scroll={{ x: 1100 }} />
+      {/* Filter & Sort Bar */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Row gutter={16} align="middle">
+          <Col>
+            <Space>
+              <FilterOutlined style={{ color: '#999' }} />
+              <span style={{ color: '#666', fontSize: 13 }}>筛选：</span>
+            </Space>
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="类型"
+              value={filterType}
+              onChange={setFilterType}
+              style={{ width: 100 }}
+              options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              placeholder="部门"
+              value={filterDept}
+              onChange={setFilterDept}
+              style={{ width: 140 }}
+              options={departments.map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              showSearch
+              placeholder="负责人"
+              value={filterAssignee}
+              onChange={setFilterAssignee}
+              style={{ width: 140 }}
+              optionFilterProp="label"
+              options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
+            />
+          </Col>
+          <Col>
+            <Button
+              size="small"
+              type={sortDueDate ? 'primary' : 'default'}
+              icon={sortDueDate === 'desc' ? <SortDescendingOutlined /> : <SortAscendingOutlined />}
+              onClick={toggleSortDueDate}
+            >
+              截止日期{sortDueDate === 'asc' ? '↑' : sortDueDate === 'desc' ? '↓' : ''}
+            </Button>
+          </Col>
+          {hasActiveFilters && (
+            <Col>
+              <Button size="small" type="link" onClick={clearFilters}>清除筛选</Button>
+            </Col>
+          )}
+          <Col flex="auto" style={{ textAlign: 'right', color: '#999', fontSize: 13 }}>
+            共 {displayItems.length} / {items.length} 条
+          </Col>
+        </Row>
+      </Card>
+
+      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} scroll={{ x: 1100 }} />
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}

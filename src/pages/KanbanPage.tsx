@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions } from 'antd';
-import { workItemApi } from '../services/api';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge } from 'antd';
+import { kanbanApi, workItemApi, departmentApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
-import type { WorkItem, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
+import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
 
 const { TextArea } = Input;
@@ -13,18 +13,28 @@ const HR_COMMERCE_DEPT_ID = 1;
 
 const statusOrder: WorkItemStatusType[] = ['pending', 'overdue', 'completed', 'cancelled'];
 
+const DEPT_COLORS = ['#1890ff', '#52c41a', '#faad14', '#722ed1'];
+
+interface KanbanDeptData {
+  department_id: number;
+  department_name: string;
+  pending: WorkItem[];
+  overdue: WorkItem[];
+  completed: WorkItem[];
+  cancelled: WorkItem[];
+}
+
 function canChangeStatus(role: string, departmentId?: number | null): boolean {
   const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
-  // 规管(4)、总裁(5)、管理员(6)始终可以
   if (roleLevel >= 4) return true;
-  // 人事/商务部 经理(2)和专员(1)可以
   if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1 && roleLevel <= 2) return true;
   return false;
 }
 
 const KanbanPage: React.FC = () => {
   const { user } = useAuth();
-  const [items, setItems] = useState<WorkItem[]>([]);
+  const [kanbanData, setKanbanData] = useState<KanbanDeptData[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(false);
   const [statusModal, setStatusModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
   const [detailModal, setDetailModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
@@ -40,10 +50,14 @@ const KanbanPage: React.FC = () => {
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const data = await workItemApi.list({ page_size: 100 });
-      setItems(data);
+      const [data, deptsData] = await Promise.all([
+        kanbanApi.get(),
+        departmentApi.list(),
+      ]);
+      setKanbanData(data as unknown as KanbanDeptData[]);
+      setDepartments(deptsData);
     } catch {
-      message.error('获取工作项失败');
+      message.error('获取看板数据失败');
     } finally {
       setLoading(false);
     }
@@ -84,22 +98,10 @@ const KanbanPage: React.FC = () => {
   const getAssigneeName = (item: WorkItem): string => {
     if (item.assignee_names) return item.assignee_names;
     if (item.assignee?.real_name) return item.assignee.real_name;
-    if (item.assignee_email_prefix) return item.assignee_email_prefix;
     return '未分配';
   };
 
-  const columns: Record<WorkItemStatusType, WorkItem[]> = {
-    pending: [],
-    overdue: [],
-    completed: [],
-    cancelled: [],
-  };
-
-  items.forEach((item) => {
-    if (columns[item.status as WorkItemStatusType]) {
-      columns[item.status as WorkItemStatusType].push(item);
-    }
-  });
+  // Need to import workItemApi for changeStatus
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
@@ -108,48 +110,68 @@ const KanbanPage: React.FC = () => {
   return (
     <div>
       <h2 style={{ marginBottom: 24 }}>工作看板</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
-        {statusOrder.map((status) => (
-          <div key={status}>
-            <div style={{ marginBottom: 12, fontWeight: 600, fontSize: 16 }}>
-              {STATUS_LABELS[status]}
-              <Tag color={STATUS_COLORS[status]} style={{ marginLeft: 8 }}>{columns[status].length}</Tag>
-            </div>
-            {columns[status].length === 0 ? (
-              <Empty description="暂无" style={{ padding: 20 }} />
-            ) : (
-              columns[status].map((item) => (
-                <Card
-                  key={item.id}
-                  size="small"
-                  style={{ marginBottom: 8, cursor: hasPermission ? 'pointer' : 'default' }}
-                  hoverable={hasPermission}
-                  onClick={() => openStatusModal(item)}
-                >
-                  <div style={{ fontWeight: 500, marginBottom: 4 }}>{item.title}</div>
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                    {item.department?.name || '未分类'}
-                  </div>
-                  <div style={{ fontSize: 12, color: '#999' }}>
-                    负责人: {getAssigneeName(item)}
-                  </div>
-                  {item.due_date && (
-                    <div style={{ fontSize: 12, color: '#999' }}>
-                      截止: {new Date(item.due_date).toLocaleDateString()}
+      <Collapse
+        defaultActiveKey={kanbanData.map((d) => String(d.department_id))}
+        style={{ background: 'transparent' }}
+      >
+        {kanbanData.map((dept, deptIdx) => {
+          const totalItems = dept.pending.length + dept.overdue.length + dept.completed.length + dept.cancelled.length;
+          return (
+            <Collapse.Panel
+              key={String(dept.department_id)}
+              header={
+                <Space>
+                  <span style={{ fontWeight: 600, fontSize: 15 }}>{dept.department_name}</span>
+                  <Badge count={totalItems} style={{ backgroundColor: DEPT_COLORS[deptIdx % DEPT_COLORS.length] }} />
+                </Space>
+              }
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                {statusOrder.map((status) => {
+                  const items = dept[status] as WorkItem[];
+                  return (
+                    <div key={status}>
+                      <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>
+                        {STATUS_LABELS[status]}
+                        <Tag color={STATUS_COLORS[status]} style={{ marginLeft: 6 }}>{items.length}</Tag>
+                      </div>
+                      {items.length === 0 ? (
+                        <Empty description="暂无" style={{ padding: 16 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                      ) : (
+                        items.map((item) => (
+                          <Card
+                            key={item.id}
+                            size="small"
+                            style={{ marginBottom: 6, cursor: hasPermission ? 'pointer' : 'default' }}
+                            hoverable={hasPermission}
+                            onClick={() => openStatusModal(item)}
+                          >
+                            <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
+                            <div style={{ fontSize: 12, color: '#999' }}>
+                              负责人: {getAssigneeName(item)}
+                            </div>
+                            {item.due_date && (
+                              <div style={{ fontSize: 12, color: '#999' }}>
+                                截止: {new Date(item.due_date).toLocaleDateString()}
+                              </div>
+                            )}
+                            <div style={{ marginTop: 4 }}>
+                              <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
+                                {item.item_type === 'cosign' ? '会签' : '任务'}
+                              </Tag>
+                              {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
+                            </div>
+                          </Card>
+                        ))
+                      )}
                     </div>
-                  )}
-                  <div style={{ marginTop: 4 }}>
-                    <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'}>
-                      {item.item_type === 'cosign' ? '会签' : '任务'}
-                    </Tag>
-                    {item.is_confidential && <Tag color="red">机密</Tag>}
-                  </div>
-                </Card>
-              ))
-            )}
-          </div>
-        ))}
-      </div>
+                  );
+                })}
+              </div>
+            </Collapse.Panel>
+          );
+        })}
+      </Collapse>
 
       {/* 有权限：状态变更弹窗 */}
       <Modal
