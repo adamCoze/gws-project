@@ -87,10 +87,34 @@ const WorkItemManagementPage: React.FC = () => {
     fetchData();
   }, []);
 
+  // Resolve assignee IDs from work item's assignee_email_prefix or assignee_id
+  const resolveAssigneeIds = (item: WorkItem): number[] => {
+    if (item.assignee_email_prefix) {
+      const prefixes = item.assignee_email_prefix.replace(/ /g, ',').split(',').map(s => s.trim()).filter(Boolean);
+      return prefixes
+        .map(prefix => users.find(u => u.email_prefix === prefix)?.id)
+        .filter((id): id is number => id !== undefined);
+    }
+    if (item.assignee_id) {
+      return [item.assignee_id];
+    }
+    return [];
+  };
+
   const openModal = (item?: WorkItem) => {
     if (item) {
       setEditingItem(item);
-      form.setFieldsValue(item);
+      const assigneeIds = resolveAssigneeIds(item);
+      form.setFieldsValue({
+        title: item.title,
+        content: item.content,
+        item_type: item.item_type,
+        status: item.status,
+        department_id: item.department_id,
+        assignee_ids: assigneeIds,
+        due_date: item.due_date ? item.due_date.slice(0, 16) : undefined,
+        is_confidential: item.is_confidential,
+      });
     } else {
       setEditingItem(null);
       form.resetFields();
@@ -103,11 +127,29 @@ const WorkItemManagementPage: React.FC = () => {
       const values = await form.validateFields();
       setSubmitting(true);
 
+      // Convert assignee_ids to assignee_email_prefix and assignee_id
+      const assigneeIds: number[] = values.assignee_ids || [];
+      const selectedUsers = assigneeIds
+        .map((id: number) => users.find(u => u.id === id))
+        .filter((u): u is UserBrief => u !== undefined);
+
+      const submitData: Record<string, unknown> = {
+        title: values.title,
+        content: values.content,
+        item_type: values.item_type,
+        status: values.status,
+        department_id: values.department_id,
+        due_date: values.due_date,
+        is_confidential: values.is_confidential,
+        assignee_email_prefix: selectedUsers.length > 0 ? selectedUsers.map(u => u.email_prefix).join(',') : null,
+        assignee_id: selectedUsers.length > 0 ? selectedUsers[0].id : null,
+      };
+
       if (editingItem) {
-        await workItemApi.update(editingItem.id, values);
+        await workItemApi.update(editingItem.id, submitData);
         message.success('工作项已更新');
       } else {
-        await workItemApi.create(values);
+        await workItemApi.create(submitData);
         message.success('工作项已创建');
       }
 
@@ -157,7 +199,6 @@ const WorkItemManagementPage: React.FC = () => {
   const getAssigneeName = (item: WorkItem): string => {
     if (item.assignee_names) return item.assignee_names;
     if (item.assignee?.real_name) return item.assignee.real_name;
-    if (item.assignee_email_prefix) return item.assignee_email_prefix;
     return '未分配';
   };
 
@@ -182,7 +223,7 @@ const WorkItemManagementPage: React.FC = () => {
       render: (_: unknown, record: WorkItem) => record.department?.name || '-',
     },
     {
-      title: '负责人', key: 'assignee', width: 100,
+      title: '负责人', key: 'assignee', width: 120,
       render: (_: unknown, record: WorkItem) => getAssigneeName(record),
     },
     {
@@ -236,8 +277,15 @@ const WorkItemManagementPage: React.FC = () => {
           <Form.Item name="department_id" label="部门">
             <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
           </Form.Item>
-          <Form.Item name="assignee_id" label="负责人">
-            <Select allowClear showSearch optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))} />
+          <Form.Item name="assignee_ids" label="负责人">
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择一个或多个负责人"
+              options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
+            />
           </Form.Item>
           <Form.Item name="due_date" label="截止日期"><Input type="datetime-local" /></Form.Item>
           <Form.Item name="is_confidential" label="是否机密" initialValue={false}>
