@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, Holiday, SystemConfig, StatusChangeLog } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -122,17 +122,6 @@ export const emailLogApi = {
     api.get<EmailLog[]>('/email-logs'),
 };
 
-// Holidays
-export const holidayApi = {
-  list: (year?: number) =>
-    api.get<Holiday[]>('/holidays', { params: { year } }),
-  create: (data: Partial<Holiday>) =>
-    api.post<Holiday>('/holidays', data),
-  update: (id: number, data: Partial<Holiday>) =>
-    api.put<Holiday>(`/holidays/${id}`, data),
-  delete: (id: number) =>
-    api.delete(`/holidays/${id}`),
-};
 
 // System Config
 export const systemConfigApi = {

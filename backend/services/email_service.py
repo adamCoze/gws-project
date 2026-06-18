@@ -3,7 +3,7 @@ import asyncio
 import email
 import imaplib
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from email.header import decode_header
 from typing import Optional
@@ -272,6 +272,12 @@ async def _process_email(
             elif isinstance(due_date_raw, datetime):
                 due_date = due_date_raw
             item_type = analysis.get("type", "task")
+            # 设置默认截止日期：task=7个自然日，cosign=24小时
+            if not due_date:
+                if item_type == "cosign":
+                    due_date = datetime.utcnow() + timedelta(days=1)
+                else:
+                    due_date = datetime.utcnow() + timedelta(days=7)
             completion = analysis.get("completion_assessment", "in_progress")
 
             # 确定工作项状态

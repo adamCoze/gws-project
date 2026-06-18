@@ -8,7 +8,6 @@ import KanbanPage from './pages/KanbanPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
 import EmailConfigPage from './pages/admin/EmailConfigPage';
 import EmailLogPage from './pages/admin/EmailLogPage';
-import HolidayConfigPage from './pages/admin/HolidayConfigPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
 import { ROLE_LEVELS } from './types';
@@ -71,14 +70,6 @@ const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute minLevel={2}>
               <EmailLogPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="admin/holidays"
-          element={
-            <ProtectedRoute minLevel={4}>
-              <HolidayConfigPage />
             </ProtectedRoute>
           }
         />
