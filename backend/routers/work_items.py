@@ -1,5 +1,6 @@
 """工作项路由"""
 import re
+import logging
 from datetime import datetime
 from typing import Optional, List
 
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog, EmailLog
+from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog, EmailLog, EmailUrlCache
 from schemas import (
     WorkItemCreate, WorkItemUpdate, WorkItemOut,
     StatusChangeRequest, StatusChangeLogOut,
@@ -18,7 +19,9 @@ from schemas import (
 from auth import get_current_user, ROLE_LEVELS
 from models import RoleType
 from services.alimail_api import get_email_url
+from config import settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
 # 人事/商务部ID
@@ -202,7 +205,7 @@ async def get_work_item_email_url(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取工作项原邮件的阿里邮箱跳转URL"""
+    """获取工作项原邮件的阿里邮箱跳转URL（带缓存）"""
     # 获取工作项
     result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
     item = result.scalar_one_or_none()
@@ -218,14 +221,30 @@ async def get_work_item_email_url(
     if not user_email:
         return EmailUrlResponse(url=None, error="当前用户未设置邮箱地址")
 
+    # === Tier 1: 查缓存 ===
+    cache_result = await db.execute(
+        select(EmailUrlCache).where(
+            EmailUrlCache.user_email == user_email,
+            EmailUrlCache.work_item_id == item_id,
+        )
+    )
+    cache_row = cache_result.scalar_one_or_none()
+    if cache_row and cache_row.conversation_id:
+        # 缓存命中，直接构造URL
+        import base64 as b64
+        import json as json_mod
+        url_payload = json_mod.dumps({"id": cache_row.conversation_id, "type": "session"})
+        encoded = b64.b64encode(url_payload.encode()).decode()
+        cached_url = f"{settings.ALIMAIL_WEBMAIL_BASE}{encoded}"
+        logger.info(f"缓存命中: work_item={item_id}, user={user_email}, convId={cache_row.conversation_id}")
+        return EmailUrlResponse(url=cached_url)
+
+    # === Tier 2: 缓存未命中，调API查找 ===
     # 获取 internetMessageId
-    # 优先从 work_item.message_id 取，否则从 email_logs 取
     internet_message_id = None
     if item.message_id:
-        # 去掉尖括号
         internet_message_id = item.message_id.strip('<>')
     else:
-        # 从 email_logs 表查找
         log_result = await db.execute(
             select(EmailLog.message_id).where(EmailLog.work_item_id == item_id).limit(1)
         )
@@ -236,23 +255,56 @@ async def get_work_item_email_url(
     if not internet_message_id:
         return EmailUrlResponse(url=None, error="未找到邮件的Message-ID")
 
-    # 获取发件人邮箱
-    sender_email = item.sender_email or extract_sender_email(item.email_from)
+    # 获取邮件日期（用于缩小API搜索范围）
+    email_date = item.email_date or item.created_at
 
     # 调用阿里邮箱API获取URL
     url = await get_email_url(
         user_email=user_email,
         email_subject=item.email_subject,
         internet_message_id=internet_message_id,
-        sender_email=sender_email,
+        sender_email=item.sender_email,
+        email_date=email_date,
     )
 
     if url:
+        # 写入缓存（提取conversationId）
+        try:
+            import base64 as b64
+            import json as json_mod
+            # URL末尾的base64部分解码获取conversationId
+            url_parts = url.split("/")
+            b64_part = url_parts[-1]
+            # 补齐padding
+            padding = 4 - len(b64_part) % 4
+            if padding != 4:
+                b64_part += "=" * padding
+            decoded = json_mod.loads(b64.b64decode(b64_part))
+            conversation_id = decoded.get("id")
+            
+            if conversation_id:
+                # 删除旧缓存（如果有）
+                await db.execute(
+                    EmailUrlCache.__table__.delete().where(
+                        EmailUrlCache.user_email == user_email,
+                        EmailUrlCache.work_item_id == item_id,
+                    )
+                )
+                # 写入新缓存
+                cache_entry = EmailUrlCache(
+                    user_email=user_email,
+                    work_item_id=item_id,
+                    conversation_id=conversation_id,
+                )
+                db.add(cache_entry)
+                await db.flush()
+                logger.info(f"缓存写入: work_item={item_id}, user={user_email}, convId={conversation_id}")
+        except Exception as e:
+            logger.warning(f"缓存写入失败（不影响URL返回）: {e}")
+        
         return EmailUrlResponse(url=url)
     else:
         return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹")
-
-
 @router.post("", response_model=WorkItemOut, status_code=201)
 async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_db)):
     """创建工作项"""

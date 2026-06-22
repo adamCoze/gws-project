@@ -169,3 +169,21 @@ class SystemConfig(Base):
     config_key = Column(String(100), unique=True, nullable=False)
     config_value = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class EmailUrlCache(Base):
+    """邮件URL缓存 - 同一用户点击同一工作项时直接返回缓存结果"""
+    __tablename__ = "email_url_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String(200), nullable=False, index=True)
+    work_item_id = Column(Integer, nullable=False, index=True)
+    conversation_id = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # 联合唯一索引：同一用户+同一工作项只有一条缓存
+    __table_args__ = (
+        # SQLite 不支持在 __table_args__ 中直接创建 UniqueConstraint，
+        # 我们在迁移脚本中处理
+        {"sqlite_autoincrement": True},
+    )
