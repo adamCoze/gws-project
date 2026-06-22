@@ -1,0 +1,249 @@
+From 019a097c15d7bf3ab0f9d29b873aefcabc53bd83 Mon Sep 17 00:00:00 2001
+From: root <root@localhost.localdomain>
+Date: Mon, 22 Jun 2026 16:47:06 +0800
+Subject: [PATCH] feat: add email link button to frontend (kanban, my work,
+ work item management)
+
+---
+ src/pages/DashboardPage.tsx                | 37 +++++++++++++++++-
+ src/pages/KanbanPage.tsx                   | 45 +++++++++++++++++++---
+ src/pages/admin/WorkItemManagementPage.tsx | 31 ++++++++++++++-
+ src/services/api.ts                        |  2 +
+ src/types/index.ts                         |  2 +
+ 5 files changed, 107 insertions(+), 10 deletions(-)
+
+diff --git a/src/pages/DashboardPage.tsx b/src/pages/DashboardPage.tsx
+index 92708ce..1262fef 100644
+--- a/src/pages/DashboardPage.tsx
++++ b/src/pages/DashboardPage.tsx
+@@ -1,6 +1,6 @@
+ import React, { useEffect, useState, useMemo } from 'react';
+-import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, Collapse } from 'antd';
+-import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
++import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, Collapse, Button, Tooltip } from 'antd';
++import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+ import type { ColumnsType } from 'antd/es/table';
+ import { workItemApi, departmentApi } from '../services/api';
+ import { useAuth } from '../components/AuthProvider';
+@@ -16,6 +16,7 @@ const DashboardPage: React.FC = () => {
+   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
+   const [departments, setDepartments] = useState<Department[]>([]);
+   const [loading, setLoading] = useState(true);
++  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
+   const { user } = useAuth();
+ 
+   useEffect(() => {
+@@ -46,6 +47,23 @@ const DashboardPage: React.FC = () => {
+   };
+ 
+   // Group by department
++  const handleEmailLink = async (item: WorkItem) => {
++    if (!item.message_id) return;
++    setEmailLoadingId(item.id);
++    try {
++      const res = await workItemApi.getEmailUrl(item.id) as any;
++      if (res.url) {
++        window.open(res.url, '_blank');
++      } else {
++        message.warning(res.error || '未找到原邮件');
++      }
++    } catch {
++      message.error('获取邮件链接失败');
++    } finally {
++      setEmailLoadingId(null);
++    }
++  };
++
+   const groupedByDept = useMemo(() => {
+     const groups: Record<number, WorkItem[]> = {};
+     const unassigned: WorkItem[] = [];
+@@ -98,6 +116,21 @@ const DashboardPage: React.FC = () => {
+       title: '邮件日期', dataIndex: 'email_date', key: 'email_date', width: 120,
+       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+     },
++    {
++      title: '原邮件', key: 'email_link', width: 70,
++      render: (_: unknown, record: WorkItem) =>
++        record.message_id ? (
++          <Tooltip title="查看原邮件">
++            <Button
++              type="text"
++              size="small"
++              icon={emailLoadingId === record.id ? <LoadingOutlined /> : <LinkOutlined />}
++              onClick={() => handleEmailLink(record)}
++              style={{ color: '#1890ff' }}
++            />
++          </Tooltip>
++        ) : null,
++    },
+   ];
+ 
+   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+diff --git a/src/pages/KanbanPage.tsx b/src/pages/KanbanPage.tsx
+index 89f18a2..666a199 100644
+--- a/src/pages/KanbanPage.tsx
++++ b/src/pages/KanbanPage.tsx
+@@ -1,5 +1,6 @@
+ import React, { useState, useEffect, useMemo } from 'react';
+-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge, Space } from 'antd';
++import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
++import { LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+ import { kanbanApi, workItemApi, departmentApi } from '../services/api';
+ import { useAuth } from '../components/AuthProvider';
+ import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
+@@ -41,6 +42,7 @@ const KanbanPage: React.FC = () => {
+   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
+   const [remark, setRemark] = useState('');
+   const [submitting, setSubmitting] = useState(false);
++  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
+ 
+   const hasPermission = useMemo(() => {
+     if (!user) return false;
+@@ -101,6 +103,24 @@ const KanbanPage: React.FC = () => {
+     return '未分配';
+   };
+ 
++  const handleEmailLink = async (e: React.MouseEvent, item: WorkItem) => {
++    e.stopPropagation();
++    if (!item.message_id) return;
++    setEmailLoadingId(item.id);
++    try {
++      const res = await workItemApi.getEmailUrl(item.id) as any;
++      if (res.url) {
++        window.open(res.url, '_blank');
++      } else {
++        message.warning(res.error || '未找到原邮件');
++      }
++    } catch {
++      message.error('获取邮件链接失败');
++    } finally {
++      setEmailLoadingId(null);
++    }
++  };
++
+ 
+   if (loading) {
+     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
+@@ -154,11 +174,24 @@ const KanbanPage: React.FC = () => {
+                                 截止: {new Date(item.due_date).toLocaleDateString()}
+                               </div>
+                             )}
+-                            <div style={{ marginTop: 4 }}>
+-                              <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
+-                                {item.item_type === 'cosign' ? '会签' : '任务'}
+-                              </Tag>
+-                              {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
++                            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
++                              <div>
++                                <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
++                                  {item.item_type === 'cosign' ? '会签' : '任务'}
++                                </Tag>
++                                {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
++                              </div>
++                              {item.message_id && (
++                                <Tooltip title="查看原邮件">
++                                  <Button
++                                    type="text"
++                                    size="small"
++                                    icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
++                                    onClick={(e) => handleEmailLink(e, item)}
++                                    style={{ color: '#1890ff', padding: '0 4px' }}
++                                  />
++                                </Tooltip>
++                              )}
+                             </div>
+                           </Card>
+                         ))
+diff --git a/src/pages/admin/WorkItemManagementPage.tsx b/src/pages/admin/WorkItemManagementPage.tsx
+index 0e6fa80..04bceed 100644
+--- a/src/pages/admin/WorkItemManagementPage.tsx
++++ b/src/pages/admin/WorkItemManagementPage.tsx
+@@ -1,6 +1,6 @@
+ import React, { useState, useEffect, useMemo } from 'react';
+ import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
+-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
++import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+ import { workItemApi, departmentApi, userApi } from '../../services/api';
+ import { useAuth } from '../../components/AuthProvider';
+ import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
+@@ -38,6 +38,7 @@ const WorkItemManagementPage: React.FC = () => {
+   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
+   const [remark, setRemark] = useState('');
+   const { user } = useAuth();
++  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
+ 
+   // Filter state
+   const [filterType, setFilterType] = useState<string | undefined>(undefined);
+@@ -232,6 +233,23 @@ const WorkItemManagementPage: React.FC = () => {
+     return '未分配';
+   };
+ 
++  const handleEmailLink = async (item: WorkItem) => {
++    if (!item.message_id) return;
++    setEmailLoadingId(item.id);
++    try {
++      const res = await workItemApi.getEmailUrl(item.id) as any;
++      if (res.url) {
++        window.open(res.url, '_blank');
++      } else {
++        message.warning(res.error || '未找到原邮件');
++      }
++    } catch {
++      message.error('获取邮件链接失败');
++    } finally {
++      setEmailLoadingId(null);
++    }
++  };
++
+   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
+ 
+   const toggleSortDueDate = () => {
+@@ -276,9 +294,18 @@ const WorkItemManagementPage: React.FC = () => {
+       render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+     },
+     {
+-      title: '操作', key: 'action', width: 250,
++      title: '操作', key: 'action', width: 320,
+       render: (_: unknown, record: WorkItem) => (
+         <Space>
++          {record.message_id && (
++            <Tooltip title="查看原邮件">
++              <Button
++                size="small"
++                icon={emailLoadingId === record.id ? <LoadingOutlined /> : <LinkOutlined />}
++                onClick={() => handleEmailLink(record)}
++              >原邮件</Button>
++            </Tooltip>
++          )}
+           {canChange && (
+             <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
+           )}
+diff --git a/src/services/api.ts b/src/services/api.ts
+index a14c7eb..34f82cd 100644
+--- a/src/services/api.ts
++++ b/src/services/api.ts
+@@ -58,6 +58,8 @@ export const workItemApi = {
+     const res = await api.get('/work-items/my', { params: emailPrefix ? { assignee_email_prefix: emailPrefix } : {} });
+     return res as unknown as WorkItem[];
+   },
++  getEmailUrl: (id: number) =>
++    api.get<{ url?: string; error?: string }>(`/work-items/${id}/email-url`),
+ };
+ 
+ // Status Change Logs
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 5a707f1..8e8b882 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -83,6 +83,8 @@ export interface WorkItem {
+   email_subject?: string;
+   email_from?: string;
+   email_date?: string;
++  message_id?: string;
++  sender_email?: string;
+   latest_progress?: string;
+   created_at: string;
+   updated_at: string;
+-- 
+2.34.1
+
