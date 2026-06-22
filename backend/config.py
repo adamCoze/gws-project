@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # 邮件检查间隔（分钟）
     EMAIL_CHECK_INTERVAL: int = int(os.getenv("EMAIL_CHECK_INTERVAL", "5"))
 
+    # 阿里邮箱API (跳转原邮件)
+    ALIMAIL_APP_ID: str = os.getenv("ALIMAIL_APP_ID", "")
+    ALIMAIL_APP_SECRET: str = os.getenv("ALIMAIL_APP_SECRET", "")
+    ALIMAIL_API_BASE: str = os.getenv("ALIMAIL_API_BASE", "https://alimail-sg.aliyuncs.com")
+    ALIMAIL_WEBMAIL_BASE: str = os.getenv("ALIMAIL_WEBMAIL_BASE", "https://mail.sg.aliyun.com/alimail/entries/v5.1/mail/inbox/all/")
+
     class Config:
         env_file = ".env"
 

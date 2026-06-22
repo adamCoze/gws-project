@@ -1,4 +1,5 @@
 """工作项路由"""
+import re
 from datetime import datetime
 from typing import Optional, List
 
@@ -8,13 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog
+from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog, EmailLog
 from schemas import (
     WorkItemCreate, WorkItemUpdate, WorkItemOut,
     StatusChangeRequest, StatusChangeLogOut,
+    EmailUrlResponse,
 )
 from auth import get_current_user, ROLE_LEVELS
 from models import RoleType
+from services.alimail_api import get_email_url
 
 router = APIRouter(prefix="/work-items", tags=["work-items"])
 
@@ -37,6 +40,23 @@ def can_change_status(user: User) -> bool:
     if user_role in HR_COMMERCE_ALLOWED and user.department_id == HR_COMMERCE_DEPT_ID:
         return True
     return False
+
+
+def extract_sender_email(email_from: str) -> Optional[str]:
+    """从 email_from 字段提取发件人邮箱地址
+    格式示例: "王辰元" <adam.wang@ntg.com.hk> 或 adam.wang@ntg.com.hk
+    """
+    if not email_from:
+        return None
+    # 尝试匹配 <email> 格式
+    match = re.search(r'<([^>]+)>', email_from)
+    if match:
+        return match.group(1).strip()
+    # 如果整个字符串就是邮箱
+    if '@' in email_from and '<' not in email_from:
+        return email_from.strip()
+    return None
+
 
 async def _resolve_assignee_names(db: AsyncSession, items: list) -> None:
     """Resolve assignee_email_prefix to real names, set as assignee_names attribute."""
@@ -174,6 +194,63 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
         item.status = "overdue"
     await _resolve_assignee_names(db, [item])
     return item
+
+
+@router.get("/{item_id}/email-url", response_model=EmailUrlResponse)
+async def get_work_item_email_url(
+    item_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取工作项原邮件的阿里邮箱跳转URL"""
+    # 获取工作项
+    result = await db.execute(select(WorkItem).where(WorkItem.id == item_id))
+    item = result.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="工作项不存在")
+
+    # 检查是否有关联邮件
+    if not item.email_subject:
+        return EmailUrlResponse(url=None, error="该工作项无关联邮件")
+
+    # 获取当前用户邮箱
+    user_email = current_user.email
+    if not user_email:
+        return EmailUrlResponse(url=None, error="当前用户未设置邮箱地址")
+
+    # 获取 internetMessageId
+    # 优先从 work_item.message_id 取，否则从 email_logs 取
+    internet_message_id = None
+    if item.message_id:
+        # 去掉尖括号
+        internet_message_id = item.message_id.strip('<>')
+    else:
+        # 从 email_logs 表查找
+        log_result = await db.execute(
+            select(EmailLog.message_id).where(EmailLog.work_item_id == item_id).limit(1)
+        )
+        log_row = log_result.first()
+        if log_row:
+            internet_message_id = log_row[0].strip('<>')
+
+    if not internet_message_id:
+        return EmailUrlResponse(url=None, error="未找到邮件的Message-ID")
+
+    # 获取发件人邮箱
+    sender_email = item.sender_email or extract_sender_email(item.email_from)
+
+    # 调用阿里邮箱API获取URL
+    url = await get_email_url(
+        user_email=user_email,
+        email_subject=item.email_subject,
+        internet_message_id=internet_message_id,
+        sender_email=sender_email,
+    )
+
+    if url:
+        return EmailUrlResponse(url=url)
+    else:
+        return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹")
 
 
 @router.post("", response_model=WorkItemOut, status_code=201)

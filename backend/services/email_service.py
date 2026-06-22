@@ -4,6 +4,7 @@ import email
 import imaplib
 import logging
 from datetime import datetime, timedelta
+import re
 from difflib import SequenceMatcher
 from email.header import decode_header
 from typing import Optional
@@ -37,6 +38,19 @@ def _decode_str(s) -> str:
             result.append(part)
     return "".join(result)
 
+
+
+
+def _extract_sender_email(email_from: str) -> str:
+    """从 email_from 字段提取发件人邮箱地址"""
+    if not email_from:
+        return ""
+    match = re.search(r'<([^>]+)>', email_from)
+    if match:
+        return match.group(1).strip()
+    if '@' in email_from and '<' not in email_from:
+        return email_from.strip()
+    return ""
 
 def _normalize_subject(subject: str) -> str:
     """去除邮件主题中的 Re:/Fwd:/转发:/回复: 等前缀，用于相似度比较"""
@@ -337,8 +351,10 @@ async def _process_email(
                     assignee_email_prefix=assignee_prefix,
                     due_date=due_date,
                     is_confidential=analysis.get("is_confidential", False),
+                    message_id=message_id,
                     email_subject=subject,
                     email_from=from_addr,
+                    sender_email=_extract_sender_email(from_addr),
                     email_date=datetime.utcnow(),
                 )
                 db.add(item)

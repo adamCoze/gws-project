@@ -132,8 +132,10 @@ class StatusChangeLogOut(BaseModel):
 
 class WorkItemOut(WorkItemBase):
     id: int
+    message_id: Optional[str] = None
     email_subject: Optional[str] = None
     email_from: Optional[str] = None
+    sender_email: Optional[str] = None
     email_date: Optional[datetime] = None
     latest_progress: Optional[str] = None
     assignee_names: Optional[str] = None
@@ -266,3 +268,10 @@ class LoginRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     password: str
+
+
+# ========== Email URL ==========
+
+class EmailUrlResponse(BaseModel):
+    url: Optional[str] = None
+    error: Optional[str] = None
