@@ -83,6 +83,8 @@ export interface WorkItem {
   email_subject?: string;
   email_from?: string;
   email_date?: string;
+  message_id?: string;
+  sender_email?: string;
   latest_progress?: string;
   created_at: string;
   updated_at: string;

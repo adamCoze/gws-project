@@ -58,6 +58,8 @@ export const workItemApi = {
     const res = await api.get('/work-items/my', { params: emailPrefix ? { assignee_email_prefix: emailPrefix } : {} });
     return res as unknown as WorkItem[];
   },
+  getEmailUrl: (id: number) =>
+    api.get<{ url?: string; error?: string }>(`/work-items/${id}/email-url`),
 };
 
 // Status Change Logs

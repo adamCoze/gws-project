@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, Collapse } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined } from '@ant-design/icons';
+import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, Collapse, Button, Tooltip } from 'antd';
+import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { workItemApi, departmentApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
@@ -16,6 +16,7 @@ const DashboardPage: React.FC = () => {
   const [workItems, setWorkItems] = useState<WorkItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
+  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -46,6 +47,23 @@ const DashboardPage: React.FC = () => {
   };
 
   // Group by department
+  const handleEmailLink = async (item: WorkItem) => {
+    if (!item.message_id) return;
+    setEmailLoadingId(item.id);
+    try {
+      const res = await workItemApi.getEmailUrl(item.id) as any;
+      if (res.url) {
+        window.open(res.url, '_blank');
+      } else {
+        message.warning(res.error || '未找到原邮件');
+      }
+    } catch {
+      message.error('获取邮件链接失败');
+    } finally {
+      setEmailLoadingId(null);
+    }
+  };
+
   const groupedByDept = useMemo(() => {
     const groups: Record<number, WorkItem[]> = {};
     const unassigned: WorkItem[] = [];
@@ -97,6 +115,21 @@ const DashboardPage: React.FC = () => {
     {
       title: '邮件日期', dataIndex: 'email_date', key: 'email_date', width: 120,
       render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+    },
+    {
+      title: '原邮件', key: 'email_link', width: 70,
+      render: (_: unknown, record: WorkItem) =>
+        record.message_id ? (
+          <Tooltip title="查看原邮件">
+            <Button
+              type="text"
+              size="small"
+              icon={emailLoadingId === record.id ? <LoadingOutlined /> : <LinkOutlined />}
+              onClick={() => handleEmailLink(record)}
+              style={{ color: '#1890ff' }}
+            />
+          </Tooltip>
+        ) : null,
     },
   ];
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
@@ -38,6 +38,7 @@ const WorkItemManagementPage: React.FC = () => {
   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
   const [remark, setRemark] = useState('');
   const { user } = useAuth();
+  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
 
   // Filter state
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
@@ -232,6 +233,23 @@ const WorkItemManagementPage: React.FC = () => {
     return '未分配';
   };
 
+  const handleEmailLink = async (item: WorkItem) => {
+    if (!item.message_id) return;
+    setEmailLoadingId(item.id);
+    try {
+      const res = await workItemApi.getEmailUrl(item.id) as any;
+      if (res.url) {
+        window.open(res.url, '_blank');
+      } else {
+        message.warning(res.error || '未找到原邮件');
+      }
+    } catch {
+      message.error('获取邮件链接失败');
+    } finally {
+      setEmailLoadingId(null);
+    }
+  };
+
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
   const toggleSortDueDate = () => {
@@ -276,9 +294,18 @@ const WorkItemManagementPage: React.FC = () => {
       render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
     },
     {
-      title: '操作', key: 'action', width: 250,
+      title: '操作', key: 'action', width: 320,
       render: (_: unknown, record: WorkItem) => (
         <Space>
+          {record.message_id && (
+            <Tooltip title="查看原邮件">
+              <Button
+                size="small"
+                icon={emailLoadingId === record.id ? <LoadingOutlined /> : <LinkOutlined />}
+                onClick={() => handleEmailLink(record)}
+              >原邮件</Button>
+            </Tooltip>
+          )}
           {canChange && (
             <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>变更状态</Button>
           )}

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge, Space } from 'antd';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Descriptions, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
+import { LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { kanbanApi, workItemApi, departmentApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
@@ -41,6 +42,7 @@ const KanbanPage: React.FC = () => {
   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
 
   const hasPermission = useMemo(() => {
     if (!user) return false;
@@ -101,6 +103,24 @@ const KanbanPage: React.FC = () => {
     return '未分配';
   };
 
+  const handleEmailLink = async (e: React.MouseEvent, item: WorkItem) => {
+    e.stopPropagation();
+    if (!item.message_id) return;
+    setEmailLoadingId(item.id);
+    try {
+      const res = await workItemApi.getEmailUrl(item.id) as any;
+      if (res.url) {
+        window.open(res.url, '_blank');
+      } else {
+        message.warning(res.error || '未找到原邮件');
+      }
+    } catch {
+      message.error('获取邮件链接失败');
+    } finally {
+      setEmailLoadingId(null);
+    }
+  };
+
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
@@ -154,11 +174,24 @@ const KanbanPage: React.FC = () => {
                                 截止: {new Date(item.due_date).toLocaleDateString()}
                               </div>
                             )}
-                            <div style={{ marginTop: 4 }}>
-                              <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
-                                {item.item_type === 'cosign' ? '会签' : '任务'}
-                              </Tag>
-                              {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
+                            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
+                                  {item.item_type === 'cosign' ? '会签' : '任务'}
+                                </Tag>
+                                {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
+                              </div>
+                              {item.message_id && (
+                                <Tooltip title="查看原邮件">
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
+                                    onClick={(e) => handleEmailLink(e, item)}
+                                    style={{ color: '#1890ff', padding: '0 4px' }}
+                                  />
+                                </Tooltip>
+                              )}
                             </div>
                           </Card>
                         ))
