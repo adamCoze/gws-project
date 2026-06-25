@@ -1,18 +1,20 @@
 """阿里邮箱 API 服务 - 用于查询邮件并构造跳转URL
 
-策略：
-1. 优先查本地缓存 email_url_cache（毫秒级）
-2. 缓存未命中时，用 list API 按日期过滤列出邮件，匹配 internetMessageId
-3. 精确匹配失败时，降级为按主题关键词搜索同会话邮件
-4. 找到后写入缓存，构造URL返回
-5. 使用单一 httpx.AsyncClient 实例复用连接
+v1.8.5 策略（方案A - 收件时主动缓存）：
+1. 收件时（IMAP处理完成后），立即为目标用户缓存 conversationId
+   - 邮件刚到达时一定在收件人邮箱的最新 ~99 封内
+   - 此时调 API 一定能找到并缓存
+2. 用户点击 🔗 时：先查缓存 → 未命中再实时查找（最近~99封范围内精确匹配）
+3. API 已知限制（不修复，绕过）：
+   - filter 参数被忽略
+   - nextCursor 翻页不工作
+   - 只能获取每个文件夹最新的 ~99 封邮件
+4. 使用单一 httpx.AsyncClient 实例复用连接
 """
 import base64
 import json
 import logging
-import re
 import time
-from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -26,13 +28,6 @@ _token_cache: dict = {"token": None, "expires_at": 0}
 
 # 共享的 httpx client（复用连接，避免每次请求都建立TLS）
 _shared_client: Optional[httpx.AsyncClient] = None
-
-# 最大翻页数限制
-MAX_PAGES = 10
-# 每页数量
-PAGE_SIZE = 50
-# 单次查找最大耗时（秒）
-MAX_SEARCH_TIME = 10
 
 
 async def _get_client() -> httpx.AsyncClient:
@@ -79,187 +74,211 @@ def _build_url(conversation_id: str) -> str:
     return f"{settings.ALIMAIL_WEBMAIL_BASE}{encoded}"
 
 
-def _clean_subject(subject: str) -> str:
-    """去除邮件主题前缀，提取核心关键词用于降级搜索"""
-    prefixes = [
-        r'^转发[：:]\s*', r'^Fwd[：:]\s*', r'^Fw[：:]\s*',
-        r'^RE[：:]\s*', r'^Re[：:]\s*', r'^回复[：:]\s*', r'^答复[：:]\s*',
-    ]
-    cleaned = subject
-    for _ in range(5):  # 递归去除多层前缀
-        before = cleaned
-        for p in prefixes:
-            cleaned = re.sub(p, '', cleaned, flags=re.IGNORECASE)
-        if cleaned == before:
-            break
-    return cleaned.strip()
-
-
-async def _list_folder_messages(
-    client: httpx.AsyncClient,
-    token: str,
+async def _get_latest_messages(
     user_email: str,
     folder_id: int,
-    filter_str: Optional[str],
-    select_fields: str,
-    start_time: float,
-    max_pages: int = MAX_PAGES,
-    max_time: float = MAX_SEARCH_TIME,
+    size: int = 99,
 ) -> list:
-    """翻页获取指定文件夹的所有邮件，返回消息列表"""
-    all_messages = []
-    next_cursor = None
-    pages = 0
+    """获取用户指定文件夹的最新邮件（不翻页，API不支持）
 
-    while pages < max_pages:
-        pages += 1
-        if time.time() - start_time > max_time:
-            logger.warning(f"翻页超时({time.time()-start_time:.1f}s)，停止")
-            break
+    Args:
+        user_email: 目标用户邮箱
+        folder_id: 文件夹ID（2=收件箱, 1=发件箱）
+        size: 获取数量，最大99
 
-        params = {"size": PAGE_SIZE, "$select": select_fields}
-        if filter_str:
-            params["filter"] = filter_str
-        if next_cursor:
-            params["nextCursor"] = next_cursor
-
-        try:
-            resp = await client.get(
-                f"{settings.ALIMAIL_API_BASE}/v2/users/{user_email}/mailFolders/{folder_id}/messages",
-                params=params,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-            if resp.status_code != 200:
-                logger.error(f"列出邮件失败: folder={folder_id}, status={resp.status_code}")
-                # 去掉 filter 重试一次
-                if filter_str and pages == 1:
-                    params.pop("filter", None)
-                    resp = await client.get(
-                        f"{settings.ALIMAIL_API_BASE}/v2/users/{user_email}/mailFolders/{folder_id}/messages",
-                        params=params,
-                        headers={"Authorization": f"Bearer {token}"},
-                    )
-                    if resp.status_code != 200:
-                        break
-                else:
-                    break
-
-            data = resp.json()
-            if "detailErrorCode" in data:
-                logger.error(f"API错误: {data.get('detailErrorCode')} - {data.get('message')}")
-                break
-
-            messages = data.get("messages", [])
-            all_messages.extend(messages)
-
-            if not data.get("hasMore"):
-                break
-            next_cursor = data.get("nextCursor")
-            if not next_cursor:
-                break
-        except Exception as e:
-            logger.error(f"列出邮件异常: folder={folder_id}, page={pages}, error={e}")
-            break
-
-    return all_messages
-
-
-async def _find_conversation_id(
-    user_email: str,
-    internet_message_id: str,
-    email_date: Optional[datetime] = None,
-    email_subject: Optional[str] = None,
-) -> Optional[str]:
-    """在用户邮箱中查找邮件的 conversationId
-
-    策略：
-    1. 优先精确匹配 internetMessageId
-    2. 失败时降级：用清洗后的主题关键词按主题搜索同会话邮件
+    Returns:
+        邮件列表，每封包含 id, conversationId, internetMessageId 等
     """
-    start_time = time.time()
     token = await _get_access_token()
     client = await _get_client()
 
-    # 确定日期范围：邮件日期前后7天
-    date_start = None
-    date_end = None
-    if email_date:
-        date_start = email_date - timedelta(days=7)
-        date_end = email_date + timedelta(days=7)
+    params = {
+        "size": size,
+        "$select": "id,conversationId,internetMessageId",
+    }
 
-    filter_str = None
-    if date_start and date_end:
-        filter_str = (
-            f"receivedDateTime ge {date_start.strftime('%Y-%m-%dT00:00:00Z')} "
-            f"and receivedDateTime le {date_end.strftime('%Y-%m-%dT23:59:59Z')}"
+    try:
+        resp = await client.get(
+            f"{settings.ALIMAIL_API_BASE}/v2/users/{user_email}/mailFolders/{folder_id}/messages",
+            params=params,
+            headers={"Authorization": f"Bearer {token}"},
         )
+        if resp.status_code != 200:
+            logger.error(f"获取邮件列表失败: user={user_email}, folder={folder_id}, status={resp.status_code}")
+            return []
 
-    logger.info(f"开始搜索: user={user_email}, msgId={internet_message_id}, filter={filter_str}")
+        data = resp.json()
+        if "detailErrorCode" in data:
+            logger.error(f"API错误: {data.get('detailErrorCode')} - {data.get('message')}")
+            return []
 
-    # ── 阶段1：精确匹配 internetMessageId ──
+        messages = data.get("messages", [])
+        logger.info(f"获取到 {len(messages)} 封邮件: user={user_email}, folder={folder_id}")
+        return messages
+
+    except Exception as e:
+        logger.error(f"获取邮件列表异常: user={user_email}, folder={folder_id}, error={e}")
+        return []
+
+
+def _match_message_id(api_message_id: str, target_message_id: str) -> bool:
+    """匹配 internetMessageId，处理尖括号差异
+
+    API返回的可能带或不带尖括号，统一去掉后比较。
+    使用包含匹配以兼容不同的格式变体。
+    """
+    if not api_message_id or not target_message_id:
+        return False
+    # 去掉尖括号
+    clean_api = api_message_id.strip("<>").strip()
+    clean_target = target_message_id.strip("<>").strip()
+    return clean_api == clean_target or clean_target in clean_api
+
+
+async def find_conversation_id(
+    user_email: str,
+    internet_message_id: str,
+) -> Optional[str]:
+    """在用户邮箱中查找邮件的 conversationId（公开方法）
+
+    只使用精确匹配 internetMessageId，在收件箱和发件箱的最新99封中查找。
+
+    Args:
+        user_email: 目标用户邮箱
+        internet_message_id: 邮件的 Message-ID（可带或不带尖括号）
+
+    Returns:
+        conversationId 或 None
+    """
+    start_time = time.time()
+    msg_id_clean = internet_message_id.strip("<>")
+
     for folder_id in [2, 1]:  # 收件箱, 发件箱
-        messages = await _list_folder_messages(
-            client, token, user_email, folder_id, filter_str,
-            "id,conversationId,internetMessageId", start_time,
-        )
+        messages = await _get_latest_messages(user_email, folder_id)
         for msg in messages:
-            msg_internet_id = msg.get("internetMessageId", "")
-            if msg_internet_id and internet_message_id in msg_internet_id:
+            api_id = msg.get("internetMessageId", "")
+            if _match_message_id(api_id, msg_id_clean):
                 conv_id = msg.get("conversationId")
                 if conv_id:
-                    logger.info(f"精确匹配成功: folder={folder_id}, convId={conv_id}, elapsed={time.time()-start_time:.2f}s")
-                    return conv_id
-
-    elapsed_s1 = time.time() - start_time
-    logger.info(f"精确匹配未命中，耗时 {elapsed_s1:.1f}s")
-
-    # ── 阶段2：降级 — 按主题关键词搜索 ──
-    if not email_subject:
-        logger.warning("无主题信息，无法降级搜索")
-        return None
-
-    keyword = _clean_subject(email_subject)
-    if not keyword:
-        logger.warning("主题清洗后为空，无法降级搜索")
-        return None
-
-    # 降级搜索使用更宽的时间范围（前后30天）
-    fallback_start = None
-    fallback_end = None
-    if email_date:
-        fallback_start = email_date - timedelta(days=30)
-        fallback_end = email_date + timedelta(days=30)
-    fallback_filter = None
-    if fallback_start and fallback_end:
-        fallback_filter = (
-            f"receivedDateTime ge {fallback_start.strftime('%Y-%m-%dT00:00:00Z')} "
-            f"and receivedDateTime le {fallback_end.strftime('%Y-%m-%dT23:59:59Z')}"
-        )
-
-    logger.info(f"降级搜索: keyword=\"{keyword}\", filter={fallback_filter}")
-
-    for folder_id in [2, 1]:
-        remaining_time = MAX_SEARCH_TIME * 2 - (time.time() - start_time)
-        if remaining_time <= 0:
-            break
-        messages = await _list_folder_messages(
-            client, token, user_email, folder_id, fallback_filter,
-            "id,conversationId,subject", start_time,
-            max_pages=MAX_PAGES, max_time=MAX_SEARCH_TIME * 2,
-        )
-        for msg in messages:
-            subj = msg.get("subject", "")
-            if keyword in subj:
-                conv_id = msg.get("conversationId")
-                if conv_id:
+                    elapsed = time.time() - start_time
                     logger.info(
-                        f"主题降级匹配成功: folder={folder_id}, subject=\"{subj}\", "
-                        f"convId={conv_id}, elapsed={time.time()-start_time:.2f}s"
+                        f"精确匹配成功: user={user_email}, folder={folder_id}, "
+                        f"convId={conv_id}, elapsed={elapsed:.2f}s"
                     )
                     return conv_id
 
-    logger.warning(f"所有搜索均未找到: msgId={internet_message_id}, elapsed={time.time()-start_time:.2f}s")
+    elapsed = time.time() - start_time
+    logger.warning(f"未找到匹配: user={user_email}, msgId={msg_id_clean}, elapsed={elapsed:.2f}s")
     return None
+
+
+# ── 方案A：收件时主动缓存 ──────────────────────────────────
+
+
+async def cache_conversation_ids_for_message(
+    internet_message_id: str,
+    target_emails: list[str],
+) -> dict[str, Optional[str]]:
+    """收件时主动为目标用户缓存 conversationId
+
+    邮件刚到达时，一定在每个收件人邮箱的最新 ~99 封内。
+    此时调 API 一定能找到并缓存。
+
+    Args:
+        internet_message_id: 邮件的 Message-ID（可带或不带尖括号）
+        target_emails: 需要缓存的目标用户邮箱列表，如 ["adam.wang@ntg.com.hk", "zhangheng@ntg.com.hk"]
+
+    Returns:
+        dict: {user_email: conversation_id or None}
+    """
+    if not internet_message_id or not target_emails:
+        return {}
+
+    results = {}
+    for user_email in target_emails:
+        try:
+            conv_id = await find_conversation_id(user_email, internet_message_id)
+            results[user_email] = conv_id
+            if conv_id:
+                logger.info(f"主动缓存成功: user={user_email}, convId={conv_id}")
+            else:
+                logger.warning(f"主动缓存未找到: user={user_email}, msgId={internet_message_id}")
+        except Exception as e:
+            logger.error(f"主动缓存异常: user={user_email}, error={e}")
+            results[user_email] = None
+
+    return results
+
+
+# ── 方案A：收件时主动缓存 ──────────────────────────────────
+
+
+async def cache_conversation_ids_for_message(
+    internet_message_id: str,
+    target_emails: list[str],
+    work_item_id: int,
+) -> dict[str, Optional[str]]:
+    """收件时主动为目标用户缓存 conversationId
+
+    邮件刚到达时，一定在每个收件人邮箱的最新 ~99 封内。
+    此时调 API 一定能找到并缓存。
+
+    Args:
+        internet_message_id: 邮件的 Message-ID（可带或不带尖括号）
+        target_emails: 需要缓存的目标用户邮箱列表
+        work_item_id: 对应的工作项 ID
+
+    Returns:
+        dict: {user_email: conversation_id or None}
+    """
+    if not internet_message_id or not target_emails:
+        return {}
+
+    # 导入数据库相关模块（延迟导入避免循环依赖）
+    import sqlite3
+    from datetime import datetime
+
+    results = {}
+    msg_id_clean = internet_message_id.strip("<>")
+
+    for user_email in target_emails:
+        try:
+            conv_id = await find_conversation_id(user_email, internet_message_id)
+            results[user_email] = conv_id
+
+            # 写入缓存
+            try:
+                conn = sqlite3.connect("/app/backend/data/gws.db")
+                conn.execute(
+                    "DELETE FROM email_url_cache WHERE user_email = ? AND work_item_id = ?",
+                    (user_email, work_item_id)
+                )
+                now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+                if conv_id:
+                    conn.execute(
+                        "INSERT INTO email_url_cache (user_email, work_item_id, conversation_id, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (user_email, work_item_id, conv_id, "found", now_str)
+                    )
+                    logger.info(f"主动缓存成功: user={user_email}, work_item={work_item_id}, convId={conv_id}")
+                else:
+                    conn.execute(
+                        "INSERT INTO email_url_cache (user_email, work_item_id, conversation_id, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (user_email, work_item_id, None, "not_found", now_str)
+                    )
+                    logger.warning(f"主动缓存未找到: user={user_email}, work_item={work_item_id}, msgId={msg_id_clean}")
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                logger.error(f"缓存写入失败: user={user_email}, error={e}")
+
+        except Exception as e:
+            logger.error(f"主动缓存异常: user={user_email}, error={e}")
+            results[user_email] = None
+
+    return results
+
+
+# ── 向后兼容：get_email_url（用户点击时的实时查找） ──────────
 
 
 async def get_email_url(
@@ -267,22 +286,24 @@ async def get_email_url(
     email_subject: str,
     internet_message_id: str,
     sender_email: Optional[str] = None,
-    email_date: Optional[datetime] = None,
+    email_date=None,
 ) -> Optional[str]:
-    """获取阿里邮箱中指定邮件的跳转URL"""
+    """获取阿里邮箱中指定邮件的跳转URL
+
+    只在最新~99封邮件范围内精确匹配。
+    如果邮件已不在范围内，返回 None（此时应由缓存提供）。
+    """
     try:
-        conversation_id = await _find_conversation_id(
+        conversation_id = await find_conversation_id(
             user_email=user_email,
             internet_message_id=internet_message_id,
-            email_date=email_date,
-            email_subject=email_subject,
         )
-        
+
         if conversation_id:
             url = _build_url(conversation_id)
             logger.info(f"构造邮件URL: convId={conversation_id}")
             return url
-        
+
         return None
 
     except Exception as e:

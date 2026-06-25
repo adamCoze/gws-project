@@ -15,8 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import async_session
 from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult, WorkItemStatus
 from services.ai_service import analyze_email_with_ai
+from services.alimail_api import cache_conversation_ids_for_message
 
 logger = logging.getLogger(__name__)
+
+# 系统默认管理员邮箱（用于主动缓存 conversationId）
+DEFAULT_ADMIN_EMAIL = "adam.wang@ntg.com.hk"
 
 _monitor_task: Optional[asyncio.Task] = None
 _running = False
@@ -177,6 +181,74 @@ def _imap_connect(config: EmailConfig) -> Optional[imaplib.IMAP4_SSL]:
     except Exception as e:
         logger.error(f"IMAP连接失败 {config.email_address}: {e}")
         return None
+
+
+def _extract_email_prefixes(addr_str: str) -> list[str]:
+    """从 To/Cc 字段提取所有邮箱前缀（@ 前面的部分）"""
+    if not addr_str:
+        return []
+    prefixes = []
+    # 匹配邮箱地址
+    emails = re.findall(r'[\w.+-]+@[\w.-]+', addr_str)
+    for email_addr in emails:
+        prefix = email_addr.split('@')[0].strip('<>').strip()
+        if prefix:
+            prefixes.append(prefix)
+    return prefixes
+
+
+async def _cache_email_url_for_recipients(
+    message_id: str,
+    to_addrs: str,
+    cc_addrs: str,
+    work_item_id: int,
+):
+    """收件时主动缓存 conversationId（方案A）
+
+    为 adam.wang + 邮件收件人 缓存 conversationId，
+    这样用户点击"查看原邮件"时可以直接从缓存读取。
+
+    Args:
+        message_id: 邮件的 Message-ID（带尖括号）
+        to_addrs: To 字段
+        cc_addrs: Cc 字段
+        work_item_id: 工作项 ID
+    """
+    try:
+        # 提取收件人邮箱前缀
+        recipient_prefixes = _extract_email_prefixes(to_addrs) + _extract_email_prefixes(cc_addrs)
+        recipient_prefixes = list(set(recipient_prefixes))  # 去重
+
+        # 构建目标用户列表
+        target_emails = [DEFAULT_ADMIN_EMAIL]
+
+        # 查询系统中对应的用户邮箱
+        if recipient_prefixes:
+            async with async_session() as db:
+                result = await db.execute(
+                    select(User.email).where(User.email_prefix.in_(recipient_prefixes))
+                )
+                for row in result:
+                    if row[0] and row[0] != DEFAULT_ADMIN_EMAIL:
+                        target_emails.append(row[0])
+
+        # 调用 API 缓存 conversationId
+        results = await cache_conversation_ids_for_message(
+            internet_message_id=message_id,
+            target_emails=target_emails,
+            work_item_id=work_item_id,
+        )
+
+        # 记录结果
+        found_count = sum(1 for v in results.values() if v)
+        logger.info(
+            f"主动缓存完成: work_item={work_item_id}, "
+            f"目标用户={len(target_emails)}, 成功={found_count}"
+        )
+
+    except Exception as e:
+        # 缓存失败不影响邮件处理结果
+        logger.warning(f"主动缓存 conversationId 失败（不影响邮件处理）: {e}")
 
 
 async def _process_email_with_retry(
@@ -375,6 +447,11 @@ async def _process_email(
             )
             db.add(log)
             await db.commit()
+
+            # ── 方案A：主动缓存 conversationId ──
+            # 在邮件刚到达时，为目标用户缓存 conversationId，避免后续查询时邮件已超出 API 范围
+            await _cache_email_url_for_recipients(message_id, to_addrs, cc_addrs, work_item_id)
+
             return EmailProcessResult.SUCCESS
 
         except Exception as e:
