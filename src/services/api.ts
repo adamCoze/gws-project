@@ -60,6 +60,8 @@ export const workItemApi = {
   },
   getEmailUrl: (id: number) =>
     api.get<{ url?: string; error?: string }>(`/work-items/${id}/email-url`),
+  getEmailLinkStatus: (ids: number[]) =>
+    api.get<{ items: Record<number, boolean> }>(`/work-items/email-link-status`, { params: { ids: ids.join(',') } }),
 };
 
 // Status Change Logs

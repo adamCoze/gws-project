@@ -3,6 +3,7 @@ import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography
 import { LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
+import { formatUTCDate } from '../utils/date';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
 
@@ -226,7 +227,7 @@ const KanbanPage: React.FC = () => {
                             </div>
                             {item.due_date && (
                               <div style={{ fontSize: 12, color: '#999' }}>
-                                截止: {new Date(item.due_date).toLocaleDateString()}
+                                截止: {formatUTCDate(item.due_date)}
                               </div>
                             )}
                             <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

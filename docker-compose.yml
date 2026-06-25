@@ -11,10 +11,12 @@ services:
       - "80:80"
     volumes:
       - gws-data:/app/backend/data
+      - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
     environment:
       - NODE_ENV=production
+      - TZ=Asia/Shanghai
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
       interval: 30s

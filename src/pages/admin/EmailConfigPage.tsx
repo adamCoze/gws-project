@@ -4,6 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { emailConfigApi } from '../../services/api';
 import type { EmailConfig } from '../../types';
+import { formatUTCDate } from '../../utils/date';
 import dayjs from 'dayjs';
 
 const { Title } = Typography;
@@ -44,7 +45,7 @@ const EmailConfigPage: React.FC = () => {
     { title: 'IMAP', key: 'imap', width: 200, render: (_: unknown, r: EmailConfig) => `${r.imap_host}:${r.imap_port}` },
     { title: '用户名', dataIndex: 'username', key: 'username', width: 150 },
     { title: '状态', dataIndex: 'is_active', key: 'is_active', width: 70, render: (v: boolean) => v ? <Tag color="green">启用</Tag> : <Tag>停用</Tag> },
-    { title: '上次检查', dataIndex: 'last_check_at', key: 'last_check_at', width: 160, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-' },
+    { title: '上次检查', dataIndex: 'last_check_at', key: 'last_check_at', width: 160, render: (v: string) => v ? formatUTCDate(v, 'YYYY-MM-DD HH:mm') : '-' },
     {
       title: '操作', key: 'action', width: 150,
       render: (_: unknown, record: EmailConfig) => (

@@ -7,6 +7,9 @@ import { useAuth } from '../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
 import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+dayjs.extend(utc);
+import { formatUTCDate } from '../utils/date';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -257,7 +260,7 @@ const DashboardPage: React.FC = () => {
     },
     {
       title: '截止日期', dataIndex: 'due_date', key: 'due_date', width: 120,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+      render: (date: string) => formatUTCDate(date),
     },
     {
       title: '机密', dataIndex: 'is_confidential', key: 'is_confidential', width: 70,
@@ -265,7 +268,7 @@ const DashboardPage: React.FC = () => {
     },
     {
       title: '邮件日期', dataIndex: 'email_date', key: 'email_date', width: 120,
-      render: (date: string) => date ? dayjs(date).format('YYYY-MM-DD') : '-',
+      render: (date: string) => formatUTCDate(date),
     },
     {
       title: '原邮件', key: 'email_link', width: 70,

@@ -5,6 +5,7 @@ import { statusChangeLogApi } from '../../services/api';
 import type { StatusChangeLog } from '../../types';
 import { STATUS_LABELS, STATUS_COLORS } from '../../types';
 import type { WorkItemStatus } from '../../types';
+import { formatUTCDate } from '../../utils/date';
 import dayjs from 'dayjs';
 
 const { Title } = Typography;
@@ -32,7 +33,7 @@ const StatusLogPage: React.FC = () => {
     { title: '新状态', dataIndex: 'new_status', key: 'new_status', width: 100, render: (s: string) => <Tag color={STATUS_COLORS[s as WorkItemStatus]}>{STATUS_LABELS[s as WorkItemStatus]}</Tag> },
     { title: '操作人', dataIndex: 'changed_by', key: 'changed_by', width: 120, render: (v: string) => v || '-' },
     { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true },
-    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss') },
+    { title: '时间', dataIndex: 'created_at', key: 'created_at', width: 170, render: (v: string) => formatUTCDate(v, 'YYYY-MM-DD HH:mm:ss') },
   ];
 
   return (

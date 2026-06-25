@@ -1,3 +1,4 @@
+import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect } from 'react';
 import { Table, Tag, Tooltip } from 'antd';
 import { emailLogApi } from '../../services/api';
@@ -60,7 +61,7 @@ const EmailLogPage: React.FC = () => {
       dataIndex: 'received_at',
       key: 'received_at',
       width: 180,
-      render: (v: string) => new Date(v).toLocaleString(),
+      render: (v: string) => formatUTCDate(v, 'YYYY-MM-DD HH:mm:ss'),
     },
     {
       title: '处理结果',

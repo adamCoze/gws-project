@@ -1,3 +1,4 @@
+import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
@@ -291,7 +292,7 @@ const WorkItemManagementPage: React.FC = () => {
     },
     {
       title: '截止日期', dataIndex: 'due_date', key: 'due_date', width: 120,
-      render: (v: string) => v ? new Date(v).toLocaleDateString() : '-',
+      render: (v: string) => v ? formatUTCDate(v) : '-',
     },
     {
       title: '操作', key: 'action', width: 320,
