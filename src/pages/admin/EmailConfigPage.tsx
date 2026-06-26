@@ -63,7 +63,7 @@ const EmailConfigPage: React.FC = () => {
         <Title level={4} style={{ margin: 0 }}>邮箱配置</Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增配置</Button>
       </div>
-      <Table columns={columns} dataSource={configs} rowKey="id" loading={loading} pagination={{ pageSize: 10 }} />
+      <Table columns={columns} dataSource={configs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [10, 20, 50], defaultPageSize: 10 }} />
       <Modal title={editing ? '编辑邮箱配置' : '新增邮箱配置'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} destroyOnClose width={500}>
         <Form form={form} layout="vertical">
           <Form.Item name="email_address" label="邮箱地址" rules={[{ required: true, type: 'email' }]}><Input /></Form.Item>

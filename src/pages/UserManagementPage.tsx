@@ -126,7 +126,7 @@ const UserManagementPage: React.FC = () => {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新建用户</Button>
       </div>
 
-      <Table columns={columns} dataSource={users} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} />
+      <Table columns={columns} dataSource={users} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} />
 
       <Modal
         title={editingUser ? '编辑用户' : '新建用户'}

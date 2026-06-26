@@ -33,7 +33,7 @@ const WorkItemManagementPage: React.FC = () => {
 
     // Fetch work items (core data)
     try {
-      const itemsData = await workItemApi.list({ page_size: 100 });
+      const itemsData = await workItemApi.list({ page_size: 10000 });
       setItems(itemsData);
     } catch {
       message.error('获取工作项失败_v2');
@@ -184,7 +184,7 @@ const WorkItemManagementPage: React.FC = () => {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>新建工作项</Button>
       </div>
 
-      <Table columns={columns} dataSource={items} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} scroll={{ x: 1100 }} />
+      <Table columns={columns} dataSource={items} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1100 }} />
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}

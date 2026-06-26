@@ -171,7 +171,7 @@ const UserManagementPage: React.FC = () => {
         dataSource={users}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 20 }}
+        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
       />
 
       <Modal

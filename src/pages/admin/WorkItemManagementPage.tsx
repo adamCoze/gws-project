@@ -63,7 +63,7 @@ const WorkItemManagementPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const itemsData = await workItemApi.list({ page_size: 100 });
+      const itemsData = await workItemApi.list({ page_size: 10000 });
       setItems(itemsData);
     } catch (e) {
       console.error('Failed to fetch work items:', e);
@@ -390,7 +390,7 @@ const WorkItemManagementPage: React.FC = () => {
         </Row>
       </Card>
 
-      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} scroll={{ x: 1100 }} />
+      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1100 }} />
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}

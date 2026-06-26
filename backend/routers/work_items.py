@@ -123,7 +123,7 @@ async def list_work_items(
     assignee_email_prefix: Optional[str] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1),
     db: AsyncSession = Depends(get_db),
 ):
     """获取工作项列表"""
@@ -216,8 +216,8 @@ async def get_email_link_status(
     if not item_ids:
         return EmailLinkStatusResponse(items={})
 
-    # 限制最多100个ID
-    item_ids = item_ids[:100]
+    # 查询所有ID
+    # 不限制ID数量
 
     # 查缓存
     result = await db.execute(

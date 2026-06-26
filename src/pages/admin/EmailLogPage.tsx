@@ -17,7 +17,7 @@ const EmailLogPage: React.FC = () => {
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const data = await emailLogApi.list();
+      const data = await emailLogApi.list({ limit: 10000 });
       setLogs(data);
     } catch {
       // error handled
@@ -108,7 +108,7 @@ const EmailLogPage: React.FC = () => {
         dataSource={logs}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 20 }}
+        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
         scroll={{ x: 1300 }}
       />
     </div>

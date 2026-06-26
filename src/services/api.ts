@@ -110,7 +110,7 @@ export const userApi = {
 
 // Email Config
 export const emailConfigApi = {
-  list: () =>
+  list: (params?: { limit?: number; offset?: number; process_result?: string }) =>
     api.get<EmailConfig[]>('/email-configs'),
   create: (data: Partial<EmailConfig> & { password?: string }) =>
     api.post<EmailConfig>('/email-configs', data),
@@ -122,8 +122,8 @@ export const emailConfigApi = {
 
 // Email Logs
 export const emailLogApi = {
-  list: () =>
-    api.get<EmailLog[]>('/email-logs'),
+  list: (params?: { limit?: number; offset?: number; process_result?: string }) =>
+    api.get<EmailLog[]>('/email-logs', { params }),
 };
 
 

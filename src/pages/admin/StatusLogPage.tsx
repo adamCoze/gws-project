@@ -39,7 +39,7 @@ const StatusLogPage: React.FC = () => {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Title level={4} style={{ margin: 0 }}>状态变更日志</Title>
-      <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }} />
+      <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} />
     </Space>
   );
 };
