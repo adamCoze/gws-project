@@ -124,8 +124,6 @@ async def list_work_items(
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1),
-    sort_by: str = Query(None, description="排序字段: updated_at, created_at, due_date"),
-    sort_order: str = Query("desc", description="排序方向: asc, desc"),
     db: AsyncSession = Depends(get_db),
 ):
     """获取工作项列表"""
@@ -150,16 +148,7 @@ async def list_work_items(
     if keyword:
         query = query.where(WorkItem.title.contains(keyword))
 
-    # 排序
-    if sort_by and hasattr(WorkItem, sort_by):
-        order_col = getattr(WorkItem, sort_by)
-        if sort_order == "asc":
-            query = query.order_by(order_col.asc())
-        else:
-            query = query.order_by(order_col.desc())
-    else:
-        query = query.order_by(WorkItem.created_at.desc())
-
+    query = query.order_by(WorkItem.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)

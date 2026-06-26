@@ -48,6 +48,7 @@ const WorkItemManagementPage: React.FC = () => {
 
   // Sort state
   const [sortDueDate, setSortDueDate] = useState<'asc' | 'desc' | null>(null);
+  const [sortUpdatedAt, setSortUpdatedAt] = useState<'asc' | 'desc' | null>(null);
 
   const canDelete = useMemo(() => {
     if (!user) return false;
@@ -87,6 +88,7 @@ const WorkItemManagementPage: React.FC = () => {
     setLoading(false);
   };
 
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -117,9 +119,16 @@ const WorkItemManagementPage: React.FC = () => {
         return sortDueDate === 'asc' ? da - db : db - da;
       });
     }
+    if (sortUpdatedAt) {
+      result.sort((a, b) => {
+        const ua = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const ub = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return sortUpdatedAt === 'asc' ? ua - ub : ub - ua;
+      });
+    }
 
     return result;
-  }, [items, filterType, filterDept, filterAssignee, sortDueDate, users]);
+  }, [items, filterType, filterDept, filterAssignee, sortDueDate, sortUpdatedAt, users]);
 
   const resolveAssigneeIds = (item: WorkItem): number[] => {
     if (item.assignee_email_prefix) {
@@ -133,6 +142,7 @@ const WorkItemManagementPage: React.FC = () => {
     }
     return [];
   };
+
 
   const openModal = (item?: WorkItem) => {
     if (item) {
@@ -154,6 +164,7 @@ const WorkItemManagementPage: React.FC = () => {
     }
     setModalVisible(true);
   };
+
 
   const handleSubmit = async () => {
     try {
@@ -177,6 +188,7 @@ const WorkItemManagementPage: React.FC = () => {
         assignee_id: selectedUsers.length > 0 ? selectedUsers[0].id : null,
       };
 
+
       if (editingItem) {
         await workItemApi.update(editingItem.id, submitData);
         message.success('工作项已更新');
@@ -194,6 +206,7 @@ const WorkItemManagementPage: React.FC = () => {
     }
   };
 
+
   const handleDelete = async (id: number) => {
     try {
       await workItemApi.delete(id);
@@ -204,11 +217,13 @@ const WorkItemManagementPage: React.FC = () => {
     }
   };
 
+
   const openStatusModal = (item: WorkItem) => {
     setStatusModal({ visible: true, item });
     setNewStatus(item.status);
     setRemark('');
   };
+
 
   const handleStatusChange = async () => {
     if (!statusModal.item) return;
@@ -228,11 +243,13 @@ const WorkItemManagementPage: React.FC = () => {
     }
   };
 
+
   const getAssigneeName = (item: WorkItem): string => {
     if (item.assignee_names) return item.assignee_names;
     if (item.assignee?.real_name) return item.assignee.real_name;
     return '未分配';
   };
+
 
   const handleEmailLink = async (item: WorkItem) => {
     if (!item.message_id) return;
@@ -251,12 +268,21 @@ const WorkItemManagementPage: React.FC = () => {
     }
   };
 
+
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
   const toggleSortDueDate = () => {
     if (sortDueDate === null) setSortDueDate('asc');
     else if (sortDueDate === 'asc') setSortDueDate('desc');
     else setSortDueDate(null);
+    setSortUpdatedAt(null);
+  };
+
+  const toggleSortUpdatedAt = () => {
+    if (sortUpdatedAt === null) setSortUpdatedAt('desc');
+    else if (sortUpdatedAt === 'desc') setSortUpdatedAt('asc');
+    else setSortUpdatedAt(null);
+    setSortDueDate(null);
   };
 
   const clearFilters = () => {
@@ -264,9 +290,11 @@ const WorkItemManagementPage: React.FC = () => {
     setFilterDept(undefined);
     setFilterAssignee(undefined);
     setSortDueDate(null);
+    setSortUpdatedAt(null);
   };
 
-  const hasActiveFilters = filterType || filterDept || filterAssignee || sortDueDate;
+
+  const hasActiveFilters = filterType || filterDept || filterAssignee || sortDueDate || sortUpdatedAt;
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -377,6 +405,16 @@ const WorkItemManagementPage: React.FC = () => {
               onClick={toggleSortDueDate}
             >
               截止日期{sortDueDate === 'asc' ? '↑' : sortDueDate === 'desc' ? '↓' : ''}
+            </Button>
+          </Col>
+          <Col>
+            <Button
+              size="small"
+              type={sortUpdatedAt ? 'primary' : 'default'}
+              icon={sortUpdatedAt === 'desc' ? <SortDescendingOutlined /> : <SortAscendingOutlined />}
+              onClick={toggleSortUpdatedAt}
+            >
+              更新时间{sortUpdatedAt === 'asc' ? '↑' : sortUpdatedAt === 'desc' ? '↓' : ''}
             </Button>
           </Col>
           {hasActiveFilters && (
