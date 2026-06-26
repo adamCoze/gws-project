@@ -4,7 +4,7 @@ import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconf
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType } from '../../types';
-import { STATUS_LABELS, STATUS_COLORS } from '../../types';
+import { STATUS_LABELS, STATUS_COLORS, TYPE_LABELS, TYPE_COLORS } from '../../types';
 
 const { TextArea } = Input;
 
@@ -145,7 +145,7 @@ const WorkItemManagementPage: React.FC = () => {
     },
     {
       title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80,
-      render: (type: string) => <Tag color={type === 'cosign' ? 'purple' : 'blue'}>{type === 'cosign' ? '会签' : '任务'}</Tag>,
+      render: (type: string) => <Tag color={TYPE_COLORS[type] || 'blue'}>{TYPE_LABELS[type] || type}</Tag>,
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 100,
@@ -198,7 +198,7 @@ const WorkItemManagementPage: React.FC = () => {
           <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="content" label="内容"><TextArea rows={4} /></Form.Item>
           <Form.Item name="item_type" label="类型" initialValue="task">
-            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
+            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }, { value: 'report', label: '汇报' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
             <Select options={statusOptions} />

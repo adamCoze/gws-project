@@ -358,16 +358,18 @@ async def _process_email(
             elif isinstance(due_date_raw, datetime):
                 due_date = due_date_raw
             item_type = analysis.get("type", "task")
-            # 设置默认截止日期：task=7个自然日，cosign=24小时
+            # 设置默认截止日期：cosign/report=24小时，task=7个自然日
             if not due_date:
-                if item_type == "cosign":
+                if item_type in ("cosign", "report"):
                     due_date = datetime.utcnow() + timedelta(days=1)
                 else:
                     due_date = datetime.utcnow() + timedelta(days=7)
             completion = analysis.get("completion_assessment", "in_progress")
 
-            # 确定工作项状态
-            if completion == "completed":
+            # 确定工作项状态：report类型强制completed
+            if item_type == "report":
+                new_status = WorkItemStatus.completed
+            elif completion == "completed":
                 new_status = WorkItemStatus.completed
             elif completion == "in_progress":
                 new_status = WorkItemStatus.pending
@@ -402,16 +404,21 @@ async def _process_email(
                 work_item_id = matching_item.id
             else:
                 # 创建新工作项
-                assignee_prefix = analysis.get("assignee_prefix")
-                # Resolve assignee_id from email_prefix (only for single assignee)
-                assignee_id = None
-                if assignee_prefix and ',' not in assignee_prefix:
-                    user_result = await db.execute(
-                        select(User).where(User.email_prefix == assignee_prefix)
-                    )
-                    user = user_result.scalar_one_or_none()
-                    if user:
-                        assignee_id = user.id
+                # report类型不需要责任人
+                if item_type == "report":
+                    assignee_prefix = None
+                    assignee_id = None
+                else:
+                    assignee_prefix = analysis.get("assignee_prefix")
+                    # Resolve assignee_id from email_prefix (only for single assignee)
+                    assignee_id = None
+                    if assignee_prefix and ',' not in assignee_prefix:
+                        user_result = await db.execute(
+                            select(User).where(User.email_prefix == assignee_prefix)
+                        )
+                        user = user_result.scalar_one_or_none()
+                        if user:
+                            assignee_id = user.id
 
                 item = WorkItem(
                     title=analysis.get("title", subject[:100]),

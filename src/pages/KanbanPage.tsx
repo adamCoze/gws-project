@@ -5,7 +5,7 @@ import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api'
 import { useAuth } from '../components/AuthProvider';
 import { formatUTCDate } from '../utils/date';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
-import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, TYPE_LABELS, TYPE_COLORS } from '../types';
 
 const { TextArea } = Input;
 
@@ -232,8 +232,8 @@ const KanbanPage: React.FC = () => {
                             )}
                             <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
-                                  {item.item_type === 'cosign' ? '会签' : '任务'}
+                                <Tag color={TYPE_COLORS[item.item_type] || 'blue'} style={{ fontSize: 11 }}>
+                                  {TYPE_LABELS[item.item_type] || item.item_type}
                                 </Tag>
                                 {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
                               </div>
@@ -274,7 +274,7 @@ const KanbanPage: React.FC = () => {
           <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="content" label="内容"><TextArea rows={4} /></Form.Item>
           <Form.Item name="item_type" label="类型" initialValue="task">
-            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
+            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }, { value: 'report', label: '汇报' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
             <Select options={statusOptions} disabled={!canChange} />

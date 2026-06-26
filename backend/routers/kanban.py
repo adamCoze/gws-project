@@ -45,6 +45,8 @@ async def get_kanban(
                 selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
             )
         )
+        # 排除汇报类工作项
+        item_query = item_query.where(WorkItem.item_type != "report")
         # 机密过滤
         if user_level < 4:
             item_query = item_query.where(

@@ -185,6 +185,8 @@ async def list_my_work_items(
     if conditions:
         query = query.where(or_(*conditions))
 
+    # 汇报类工作不出现在"我的工作"中
+    query = query.where(WorkItem.item_type != "report")
     query = query.order_by(WorkItem.created_at.desc())
     result = await db.execute(query)
     items = result.scalars().all()

@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff';
 export type RoleType = UserRole;
 export type WorkItemStatus = 'pending' | 'completed' | 'overdue' | 'cancelled';
-export type WorkItemType = 'task' | 'cosign';
+export type WorkItemType = 'task' | 'cosign' | 'report';
 export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -27,6 +27,18 @@ export const STATUS_LABELS: Record<string, string> = {
   completed: '已完成',
   overdue: '已逾时',
   cancelled: '不再进行',
+};
+
+export const TYPE_LABELS: Record<string, string> = {
+  task: '任务',
+  cosign: '会签',
+  report: '汇报',
+};
+
+export const TYPE_COLORS: Record<string, string> = {
+  task: 'blue',
+  cosign: 'purple',
+  report: 'orange',
 };
 
 export const STATUS_COLORS: Record<string, string> = {

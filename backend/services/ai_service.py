@@ -42,10 +42,13 @@ summary（必填）
 - 100字以内
 - 必须阅读完整邮件内容（包括转发体）后进行归纳总结，不是简单截取原文
 
-type（必填，二选一）
+type（必填，三选一）
 - "task"：普通工作任务（默认值）
 - "cosign"：会签/审批类任务
-- 判断依据：邮件中包含"会签"、"审批"、"签批"、"签署"、"批复"、"征求意见"等关键词时，type 为 "cosign"
+- "report"：报告/周报/月报/汇总类（仅需知会备查，无需执行行动）
+- 判断依据：
+  - 邮件中包含"会签"、"审批"、"签批"、"签署"、"批复"、"征求意见"等关键词时，type 为 "cosign"
+  - 邮件中包含"报告"、"周报"、"月报"、"汇总"、"报表"、"简报"、"情况说明"、"查收"、"报送"、"提交"（后接报告类名词）等关键词，且邮件性质为信息通报而非需要执行的任务时，type 为 "report"
 
 department（必填，从以下4个部门中选择1个）
 可选值：
@@ -206,16 +209,25 @@ async def analyze_email_with_ai(subject: str, body: str, to_addrs: str = "", cc_
 def _fallback_analysis(subject: str, body: str) -> Dict[str, Any]:
     """降级分析（当 AI 不可用时）"""
     is_cosign = any(kw in subject + body for kw in ["会签", "审批", "签批", "签署"])
+    report_keywords = ["报告", "周报", "月报", "汇总", "报表", "简报", "情况说明", "查收", "报送"]
+    is_report = not is_cosign and any(kw in subject + body for kw in report_keywords)
     is_confidential = any(kw in subject + body for kw in ["机密", "保密", "内部", "战略", "并购"])
+
+    if is_cosign:
+        item_type = "cosign"
+    elif is_report:
+        item_type = "report"
+    else:
+        item_type = "task"
 
     return {
         "title": subject[:100] if subject else "未命名工作项",
         "summary": body[:200] if body else subject[:200],
-        "type": "cosign" if is_cosign else "task",
+        "type": item_type,
         "department": "行政/产品部",
         "assignee_prefix": None,
         "due_date": None,
         "is_confidential": is_confidential,
         "cosign_status": [],
-        "completion_assessment": "uncertain",
+        "completion_assessment": "completed" if is_report else "uncertain",
     }

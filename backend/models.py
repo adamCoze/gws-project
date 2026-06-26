@@ -42,6 +42,7 @@ class WorkItemStatus(str, Enum):
 class WorkItemType(str, Enum):
     task = "task"
     cosign = "cosign"
+    report = "report"
 
 
 class EmailProcessResult(str, Enum):

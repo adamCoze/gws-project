@@ -5,7 +5,7 @@ import type { ColumnsType } from 'antd/es/table';
 import { workItemApi, departmentApi, userApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
-import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, TYPE_LABELS, TYPE_COLORS } from '../types';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
@@ -244,7 +244,7 @@ const DashboardPage: React.FC = () => {
     },
     {
       title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80,
-      render: (type: string) => <Tag color={type === 'task' ? 'blue' : 'purple'}>{type === 'task' ? '任务' : '会签'}</Tag>,
+      render: (type: string) => <Tag color={TYPE_COLORS[type] || 'blue'}>{TYPE_LABELS[type] || type}</Tag>,
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 100,
@@ -338,7 +338,7 @@ const DashboardPage: React.FC = () => {
           <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="content" label="内容"><TextArea rows={4} /></Form.Item>
           <Form.Item name="item_type" label="类型" initialValue="task">
-            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
+            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }, { value: 'report', label: '汇报' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
             <Select options={statusOptions} disabled={!canChange} />
