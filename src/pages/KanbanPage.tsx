@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
-import { LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+import { LinkOutlined, LoadingOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
 import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import { formatUTCDate } from '../utils/date';
@@ -13,6 +13,9 @@ const { TextArea } = Input;
 const HR_COMMERCE_DEPT_ID = 1;
 
 const statusOrder: WorkItemStatusType[] = ['pending', 'overdue', 'completed', 'cancelled'];
+
+// 可折叠的状态列
+const collapsibleStatuses: WorkItemStatusType[] = ['completed', 'cancelled'];
 
 const DEPT_COLORS = ['#1890ff', '#52c41a', '#faad14', '#722ed1'];
 
@@ -46,6 +49,9 @@ const KanbanPage: React.FC = () => {
   const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 折叠状态：key = "deptId_status"，true = 展开
+  const [expandedCols, setExpandedCols] = useState<Record<string, boolean>>({});
+
   // Edit modal state
   const [editModal, setEditModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
   const [form] = Form.useForm();
@@ -58,6 +64,12 @@ const KanbanPage: React.FC = () => {
     if (!user) return false;
     return canChangeStatus(user.role, user.department_id);
   }, [user]);
+
+  const isExpanded = (deptId: number, status: string) => expandedCols[`${deptId}_${status}`] === true;
+
+  const toggleExpand = (deptId: number, status: string) => {
+    setExpandedCols(prev => ({ ...prev, [`${deptId}_${status}`]: !prev[`${deptId}_${status}`] }));
+  };
 
   const fetchItems = async () => {
     setLoading(true);
@@ -178,6 +190,45 @@ const KanbanPage: React.FC = () => {
 
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
+  const renderCard = (item: WorkItem) => (
+    <Card
+      key={item.id}
+      size="small"
+      style={{ marginBottom: 6, cursor: 'pointer' }}
+      hoverable
+      onClick={() => openEditModal(item)}
+    >
+      <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
+      <div style={{ fontSize: 12, color: '#999' }}>
+        负责人: {getAssigneeName(item)}
+      </div>
+      {item.due_date && (
+        <div style={{ fontSize: 12, color: '#999' }}>
+          截止: {formatUTCDate(item.due_date)}
+        </div>
+      )}
+      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Tag color={TYPE_COLORS[item.item_type] || 'blue'} style={{ fontSize: 11 }}>
+            {TYPE_LABELS[item.item_type] || item.item_type}
+          </Tag>
+          {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
+        </div>
+        {emailLinkStatus[item.id] && (
+          <Tooltip title="查看原邮件">
+            <Button
+              type="text"
+              size="small"
+              icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
+              onClick={(e) => handleEmailLink(e, item)}
+              style={{ color: '#1890ff', padding: '0 4px' }}
+            />
+          </Tooltip>
+        )}
+      </div>
+    </Card>
+  );
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
   }
@@ -204,6 +255,11 @@ const KanbanPage: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {statusOrder.map((status) => {
                   const items = dept[status] as WorkItem[];
+                  const isCollapsible = collapsibleStatuses.includes(status);
+                  const expanded = isExpanded(dept.department_id, status);
+                  const visibleItems = isCollapsible && !expanded ? items.slice(0, 1) : items;
+                  const hiddenCount = isCollapsible && !expanded ? items.length - 1 : 0;
+
                   return (
                     <div key={status}>
                       <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>
@@ -213,44 +269,40 @@ const KanbanPage: React.FC = () => {
                       {items.length === 0 ? (
                         <Empty description="暂无" style={{ padding: 16 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                       ) : (
-                        items.map((item) => (
-                          <Card
-                            key={item.id}
-                            size="small"
-                            style={{ marginBottom: 6, cursor: 'pointer' }}
-                            hoverable
-                            onClick={() => openEditModal(item)}
-                          >
-                            <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
-                            <div style={{ fontSize: 12, color: '#999' }}>
-                              负责人: {getAssigneeName(item)}
+                        <>
+                          {visibleItems.map(renderCard)}
+                          {isCollapsible && hiddenCount > 0 && (
+                            <div
+                              style={{
+                                textAlign: 'center',
+                                padding: '6px 0',
+                                color: '#1890ff',
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                              onClick={() => toggleExpand(dept.department_id, status)}
+                            >
+                              还有 {hiddenCount} 项 <DownOutlined />
                             </div>
-                            {item.due_date && (
-                              <div style={{ fontSize: 12, color: '#999' }}>
-                                截止: {formatUTCDate(item.due_date)}
-                              </div>
-                            )}
-                            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <div>
-                                <Tag color={TYPE_COLORS[item.item_type] || 'blue'} style={{ fontSize: 11 }}>
-                                  {TYPE_LABELS[item.item_type] || item.item_type}
-                                </Tag>
-                                {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
-                              </div>
-                              {emailLinkStatus[item.id] && (
-                                <Tooltip title="查看原邮件">
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
-                                    onClick={(e) => handleEmailLink(e, item)}
-                                    style={{ color: '#1890ff', padding: '0 4px' }}
-                                  />
-                                </Tooltip>
-                              )}
+                          )}
+                          {isCollapsible && !expanded && hiddenCount === 0 && items.length === 1 && null}
+                          {isCollapsible && expanded && items.length > 1 && (
+                            <div
+                              style={{
+                                textAlign: 'center',
+                                padding: '6px 0',
+                                color: '#1890ff',
+                                fontSize: 12,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                              onClick={() => toggleExpand(dept.department_id, status)}
+                            >
+                              收起 <UpOutlined />
                             </div>
-                          </Card>
-                        ))
+                          )}
+                        </>
                       )}
                     </div>
                   );
