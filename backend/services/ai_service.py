@@ -49,6 +49,7 @@ type（必填，三选一）
 - 判断依据：
   - 邮件中包含"会签"、"审批"、"签批"、"签署"、"批复"、"征求意见"等关键词时，type 为 "cosign"
   - 邮件中包含"报告"、"周报"、"月报"、"汇总"、"报表"、"简报"、"情况说明"、"查收"、"报送"、"提交"（后接报告类名词）等关键词，且邮件性质为信息通报而非需要执行的任务时，type 为 "report"
+  - 如果邮件是转发邮件（邮件标题含"转发"、"Fw"、"Fwd"、"轉寄"等前缀），且邮件内容仅展示信息、同步进展、通报情况，没有具体的请示内容、没有指派特定人员执行具体任务，则 type 为 "report"
 
 department（必填，从以下4个部门中选择1个）
 可选值：
@@ -209,7 +210,7 @@ async def analyze_email_with_ai(subject: str, body: str, to_addrs: str = "", cc_
 def _fallback_analysis(subject: str, body: str) -> Dict[str, Any]:
     """降级分析（当 AI 不可用时）"""
     is_cosign = any(kw in subject + body for kw in ["会签", "审批", "签批", "签署"])
-    report_keywords = ["报告", "周报", "月报", "汇总", "报表", "简报", "情况说明", "查收", "报送"]
+    report_keywords = ["报告", "周报", "月报", "汇总", "报表", "简报", "情况说明", "查收", "报送", "每日电邮", "例会纪要", "例会纲要", "信息汇总", "工作总结"]
     is_report = not is_cosign and any(kw in subject + body for kw in report_keywords)
     is_confidential = any(kw in subject + body for kw in ["机密", "保密", "内部", "战略", "并购"])
 
