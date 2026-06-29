@@ -57,18 +57,15 @@ def _extract_sender_email(email_from: str) -> str:
     return ""
 
 def _normalize_subject(subject: str) -> str:
-    """去除邮件主题中的 Re:/Fwd:/转发:/回复: 等前缀，用于相似度比较"""
+    """去除邮件主题中的 Re:/Fwd:/转发:/回复:/回覆:/轉寄: 等前缀，用于相似度比较和存储"""
     if not subject:
         return ""
-    prefixes = ["re:", "fwd:", "转发:", "回复:", "转寄:", "fw:", "Re:", "Fwd:", "Fw:"]
+    pattern = r"^(?:re|fw|fwd|转发|回复|转寄|回覆|轉寄)\s*[:：]\s*"
     normalized = subject.strip()
-    changed = True
-    while changed:
-        changed = False
-        for prefix in prefixes:
-            if normalized.lower().startswith(prefix.lower()):
-                normalized = normalized[len(prefix):].strip()
-                changed = True
+    prev = None
+    while prev != normalized:
+        prev = normalized
+        normalized = re.sub(pattern, "", normalized, flags=re.IGNORECASE).strip()
     return normalized
 
 
@@ -431,7 +428,7 @@ async def _process_email(
                     due_date=due_date,
                     is_confidential=analysis.get("is_confidential", False),
                     message_id=message_id,
-                    email_subject=subject,
+                    email_subject=_normalize_subject(subject),
                     email_from=from_addr,
                     sender_email=_extract_sender_email(from_addr),
                     email_date=datetime.utcnow(),
