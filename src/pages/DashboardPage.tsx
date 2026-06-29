@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, Collapse, Button, Tooltip, Modal, Form, Input, Select } from 'antd';
+import { Table, Tag, Card, Typography, Space, Statistic, Row, Col, Spin, message, notification, Collapse, Button, Tooltip, Modal, Form, Input, Select } from 'antd';
 import { CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, StopOutlined, SyncOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import { workItemApi, departmentApi, userApi } from '../services/api';
@@ -101,6 +101,20 @@ const DashboardPage: React.FC = () => {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
         window.open(res.url, '_blank');
+      } else if (res.search_url) {
+        notification.warning({
+          message: '未找到原邮件',
+          description: (
+            <span>
+              可尝试搜索原邮件：
+              <a href={res.search_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>
+                在邮箱中搜索「{item.email_subject || item.title}」
+              </a>
+            </span>
+          ),
+          duration: 8,
+        });
+        setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       } else {
         message.warning(res.error || '未找到原邮件');
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));

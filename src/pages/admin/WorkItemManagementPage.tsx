@@ -1,6 +1,6 @@
 import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect, useMemo } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
+import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, notification, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
@@ -252,14 +252,28 @@ const WorkItemManagementPage: React.FC = () => {
 
 
   const handleEmailLink = async (item: WorkItem) => {
-    if (!item.message_id) return;
     setEmailLoadingId(item.id);
     try {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
         window.open(res.url, '_blank');
+      } else if (res.search_url) {
+        notification.warning({
+          message: '未找到原邮件',
+          description: (
+            <span>
+              可尝试搜索原邮件：
+              <a href={res.search_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>
+                在邮箱中搜索「{item.email_subject || item.title}」
+              </a>
+            </span>
+          ),
+          duration: 8,
+        });
+        setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       } else {
         message.warning(res.error || '未找到原邮件');
+        setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       }
     } catch {
       message.error('获取邮件链接失败');

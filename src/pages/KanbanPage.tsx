@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
+import { Card, Tag, Select, Modal, Form, Input, message, notification, Spin, Empty, Typography, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
 import { LinkOutlined, LoadingOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
 import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
@@ -177,6 +177,20 @@ const KanbanPage: React.FC = () => {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
         window.open(res.url, '_blank');
+      } else if (res.search_url) {
+        notification.warning({
+          message: '未找到原邮件',
+          description: (
+            <span>
+              可尝试搜索原邮件：
+              <a href={res.search_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>
+                在邮箱中搜索「{item.email_subject || item.title}」
+              </a>
+            </span>
+          ),
+          duration: 8,
+        });
+        setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       } else {
         message.warning(res.error || '未找到原邮件');
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
