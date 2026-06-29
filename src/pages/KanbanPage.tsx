@@ -228,7 +228,7 @@ const KanbanPage: React.FC = () => {
           </Tag>
           {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
         </div>
-        {emailLinkStatus[item.id] && (
+        {item.email_subject && (
           <Tooltip title="查看原邮件">
             <Button
               type="text"

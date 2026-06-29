@@ -340,7 +340,7 @@ const WorkItemManagementPage: React.FC = () => {
       title: '操作', key: 'action', width: 320,
       render: (_: unknown, record: WorkItem) => (
         <Space>
-          {record.message_id && (
+          {record.email_subject && (
             <Tooltip title="查看原邮件">
               <Button
                 size="small"

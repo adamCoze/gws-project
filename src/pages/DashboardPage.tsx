@@ -287,7 +287,7 @@ const DashboardPage: React.FC = () => {
     {
       title: '原邮件', key: 'email_link', width: 70,
       render: (_: unknown, record: WorkItem) =>
-        emailLinkStatus[record.id] ? (
+        record.email_subject ? (
           <Tooltip title="查看原邮件">
             <Button
               type="text"
