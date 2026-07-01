@@ -31,7 +31,6 @@ DEPT_NAMES = {
 }
 
 GWS_BASE_URL = "http://47.253.159.101"
-QUICK_COMPLETE_TOKEN = "gws-qc-2026-secret"
 
 
 def _get_dept_name(department_id: int, department_obj=None) -> str:
@@ -49,17 +48,50 @@ def _build_search_url(email_subject: str) -> str:
     return f"{base}?keyword={quote(keyword)}"
 
 
-def _build_quick_complete_url(item_id: int) -> str:
-    """构造快捷完成页面URL"""
-    return f"{GWS_BASE_URL}/quick-complete/{item_id}?token={QUICK_COMPLETE_TOKEN}"
+def _build_gws_login_url() -> str:
+    """构造GWS系统登录页面URL"""
+    return f"{GWS_BASE_URL}/login"
 
 
-def _calc_overdue_days(due_date_str: str) -> int:
+def _format_due_date(due_date) -> str:
+    """格式化截止日期，只显示日期部分"""
+    if due_date is None:
+        return "-"
+    if isinstance(due_date, datetime):
+        return due_date.strftime("%Y-%m-%d")
+    if isinstance(due_date, date):
+        return due_date.strftime("%Y-%m-%d")
+    if isinstance(due_date, str):
+        # 处理 "2026-06-24 03:32:25.889034" 或 "2026-06-24" 格式
+        try:
+            dt = datetime.fromisoformat(str(due_date).split('.')[0])
+            return dt.strftime("%Y-%m-%d")
+        except (ValueError, TypeError):
+            return str(due_date)[:10]
+    return str(due_date)[:10]
+
+
+def _calc_overdue_days(due_date) -> int:
     """计算逾期天数"""
     try:
-        due = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+        if due_date is None:
+            return 0
+        
+        # 处理 datetime 对象
+        if isinstance(due_date, datetime):
+            due = due_date.date()
+        elif isinstance(due_date, date):
+            due = due_date
+        elif isinstance(due_date, str):
+            # 处理字符串格式
+            due_str = str(due_date).split('.')[0].split(' ')[0]  # 取日期部分
+            due = datetime.strptime(due_str, "%Y-%m-%d").date()
+        else:
+            return 0
+        
         return (date.today() - due).days
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        logger.warning(f"计算逾期天数失败: {due_date}, error: {e}")
         return 0
 
 
@@ -109,7 +141,8 @@ def _build_html_email(items: list, all_depts: list) -> str:
             for item in dept_overdue:
                 overdue_days = _calc_overdue_days(item.due_date)
                 search_url = _build_search_url(item.email_subject or item.title)
-                qc_url = _build_quick_complete_url(item.id)
+                gws_url = _build_gws_login_url()
+                due_date_formatted = _format_due_date(item.due_date)
                 
                 # 工作内容换行处理
                 content = item.content or "（无详细内容）"
@@ -124,11 +157,11 @@ def _build_html_email(items: list, all_depts: list) -> str:
                     </td>
                     <td style="border: 1px solid #ddd; padding: 10px; text-align: center; white-space: nowrap;">{dept_name}</td>
                     <td style="border: 1px solid #ddd; padding: 10px; font-size: 13px; line-height: 1.6;">{content_html}</td>
-                    <td style="border: 1px solid #ddd; padding: 10px; text-align: center; white-space: nowrap;">{item.due_date}</td>
+                    <td style="border: 1px solid #ddd; padding: 10px; text-align: center; white-space: nowrap;">{due_date_formatted}</td>
                     <td style="border: 1px solid #ddd; padding: 10px; text-align: center; white-space: nowrap; color: #d32f2f; font-weight: bold;">{overdue_days}天</td>
                     <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">
-                        <a href="{qc_url}" target="_blank" style="display: inline-block; padding: 6px 16px; background: #4caf50; color: white; border-radius: 4px; text-decoration: none; font-size: 13px;">
-                            设为已完成
+                        <a href="{gws_url}" target="_blank" style="display: inline-block; padding: 6px 16px; background: #1677ff; color: white; border-radius: 4px; text-decoration: none; font-size: 13px;">
+                            登录工作跟进系统
                         </a>
                     </td>
                 </tr>"""
