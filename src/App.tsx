@@ -21,7 +21,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; minLevel?: number }>
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to={"/login?redirect=" + encodeURIComponent(window.location.pathname + window.location.search)} replace />;
   }
 
   if (user && minLevel > 1) {

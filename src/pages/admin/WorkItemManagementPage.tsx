@@ -91,6 +91,23 @@ const WorkItemManagementPage: React.FC = () => {
 
   useEffect(() => {
     fetchData();
+    // 检查URL参数，如果包含edit参数则自动打开编辑弹窗
+    const editId = new URLSearchParams(window.location.search).get('edit');
+    if (editId) {
+      const timer = setTimeout(async () => {
+        try {
+          const item = await workItemApi.get(Number(editId));
+          if (item) {
+            openModal(item as unknown as WorkItem);
+            // 清除URL中的edit参数
+            window.history.replaceState(null, '', '/admin/work-items');
+          }
+        } catch (e) {
+          console.error('Failed to load work item for edit:', e);
+        }
+      }, 1500); // 等待数据加载完成
+      return () => clearTimeout(timer);
+    }
   }, []);
 
   // Filtered and sorted items

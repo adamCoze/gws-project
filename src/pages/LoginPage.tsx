@@ -20,7 +20,7 @@ const LoginPage: React.FC = () => {
       const { access_token, user } = res as any;
       login(access_token, user);
       message.success('登录成功');
-      navigate('/dashboard');
+      const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/dashboard'; navigate(redirectUrl);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '登录失败，请检查用户名和密码');
