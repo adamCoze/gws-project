@@ -48,9 +48,9 @@ def _build_search_url(email_subject: str) -> str:
     return f"{base}?keyword={quote(keyword)}"
 
 
-def _build_gws_login_url() -> str:
-    """构造GWS系统登录页面URL"""
-    return f"{GWS_BASE_URL}/login"
+def _build_edit_url(item_id: int) -> str:
+    """构造工作项编辑页面URL（支持未登录自动跳转登录）"""
+    return f"{GWS_BASE_URL}/admin/work-items?edit={item_id}"
 
 
 def _format_due_date(due_date) -> str:
@@ -141,7 +141,7 @@ def _build_html_email(items: list, all_depts: list) -> str:
             for item in dept_overdue:
                 overdue_days = _calc_overdue_days(item.due_date)
                 search_url = _build_search_url(item.email_subject or item.title)
-                gws_url = _build_gws_login_url()
+                gws_url = _build_edit_url(item.id)
                 due_date_formatted = _format_due_date(item.due_date)
                 
                 # 工作内容换行处理
@@ -161,7 +161,7 @@ def _build_html_email(items: list, all_depts: list) -> str:
                     <td style="border: 1px solid #ddd; padding: 10px; text-align: center; white-space: nowrap; color: #d32f2f; font-weight: bold;">{overdue_days}天</td>
                     <td style="border: 1px solid #ddd; padding: 10px; text-align: center;">
                         <a href="{gws_url}" target="_blank" style="display: inline-block; padding: 6px 16px; background: #1677ff; color: white; border-radius: 4px; text-decoration: none; font-size: 13px;">
-                            登录工作跟进系统
+                            编辑此工作项
                         </a>
                     </td>
                 </tr>"""
