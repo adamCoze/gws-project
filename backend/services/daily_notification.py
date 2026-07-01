@@ -5,6 +5,7 @@ import ssl
 from datetime import datetime, date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate, make_msgid
 from urllib.parse import quote
 
 from sqlalchemy import select
@@ -257,6 +258,8 @@ async def send_daily_overdue_notification():
         msg["Subject"] = subject
         msg["From"] = email_config.email_address
         msg["To"] = ", ".join(RECIPIENTS)
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid()
         
         msg.attach(MIMEText(html, "html", "utf-8"))
         
