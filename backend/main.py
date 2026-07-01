@@ -48,11 +48,34 @@ async def lifespan(app: FastAPI):
 
     notification_task = asyncio.create_task(daily_notification_scheduler())
 
+    # 启动会签自动完成定时检查（每10分钟检查一次）
+    from services.cosign_service import check_and_auto_complete_cosign, backfill_existing_cosign_items
+
+    async def cosign_autocomplete_scheduler():
+        # 启动时先做一次存量数据迁移
+        try:
+            await backfill_existing_cosign_items()
+        except Exception as e:
+            logger.error(f"会签存量数据迁移失败: {e}", exc_info=True)
+
+        while True:
+            try:
+                await asyncio.sleep(600)  # 每10分钟检查一次
+                completed = await check_and_auto_complete_cosign()
+                if completed:
+                    logger.info(f"会签自动完成: {len(completed)} 个工作项")
+            except Exception as e:
+                logger.error(f"会签自动完成检查异常: {e}", exc_info=True)
+                await asyncio.sleep(60)
+
+    cosign_task = asyncio.create_task(cosign_autocomplete_scheduler())
+
     yield
     # 关闭邮件监听
     from services.email_service import stop_email_monitor
     await stop_email_monitor()
     notification_task.cancel()
+    cosign_task.cancel()
 
 
 app = FastAPI(

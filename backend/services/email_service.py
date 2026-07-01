@@ -16,6 +16,12 @@ from database import async_session
 from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult, WorkItemStatus
 from services.ai_service import analyze_email_with_ai
 from services.alimail_api import cache_conversation_ids_for_message
+from services.cosign_service import (
+    initialize_cosign_tracking,
+    update_cosign_tracking,
+    analyze_cosign_reply,
+    extract_sender_prefix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -399,6 +405,18 @@ async def _process_email(
                 matching_item.updated_at = datetime.utcnow()
 
                 work_item_id = matching_item.id
+
+                # ── 会签回复追踪 ──
+                # 如果是会签工作项收到回复邮件，分析回复内容并更新追踪
+                if matching_item.item_type == "cosign":
+                    try:
+                        sender_prefix = extract_sender_prefix(from_addr)
+                        reply_analysis = await analyze_cosign_reply(subject, body)
+                        await update_cosign_tracking(
+                            work_item_id, sender_prefix, reply_analysis, subject
+                        )
+                    except Exception as e:
+                        logger.warning(f"会签追踪更新失败 (wi={work_item_id}): {e}")
             else:
                 # 创建新工作项
                 # report类型不需要责任人
@@ -437,6 +455,10 @@ async def _process_email(
                 await db.flush()
                 work_item_id = item.id
                 logger.info(f"成功创建工作项: {item.title} (状态: {new_status.value})")
+
+                # 如果是会签类型，初始化追踪
+                if item_type == "cosign":
+                    await initialize_cosign_tracking(work_item_id)
 
             # 记录邮件日志
             log = EmailLog(
