@@ -15,8 +15,11 @@ from models import WorkItem, WorkItemStatus, User, StatusChangeLog
 
 logger = logging.getLogger(__name__)
 
-# 向总的邮箱前缀
+# 向总(xiangxin)的邮箱前缀
 XIANGXIN_PREFIX = "xiangxin"
+
+# vincent.xiang的邮箱前缀（无指定会签人时，vincent.xiang的简单批示触发自动完成）
+VINCENT_XIANG_PREFIX = "vincent.xiang"
 
 # 简单批示关键词（AI 辅助判断的 fallback）
 SIMPLE_APPROVAL_KEYWORDS = [
@@ -37,9 +40,9 @@ def extract_reply_text(body: str) -> str:
 
     # 常见的引用分割标记
     markers = [
-        "\nOn ",  # "On date, wrote:"
-        "\n在 ",  # 中文 "在 ... 写道"
-        "\n>",     # 逐行引用
+        "\nOn ",
+        "\n在 ",
+        "\n>",
         "\n发件人:",
         "\nFrom:",
         "---------- Forwarded message ----------",
@@ -104,19 +107,18 @@ async def analyze_cosign_reply(subject: str, body: str) -> Dict:
     """
     reply_text = extract_reply_text(body)
 
-    prompt = f"""分析以下会签回复邮件，判断两个问题：
-
-邮件主题：{subject[:200]}
-回复内容：{reply_text[:1000]}
-
-判断规则：
-1. is_simple_approval：回复内容是否仅为简单批示/确认？
-   - 算简单批示："无异议"、"同意"、"已阅"、"照准"、"如拟"、"无补充意见"、"已阅知"、"无意见"、"拟同意"、"确认"
-   - 不算简单批示：回复中带有条件、疑问、修改意见、反对、补充说明，或内容超过一句话的实质性讨论
-2. mentions_xiangxin：回复内容中是否提到了"向总"、"xiangxin"或要求向总审批/确认/指导？
-
-直接输出 JSON，不要任何其他文字：
-{{"is_simple_approval": false, "mentions_xiangxin": false}}"""
+    prompt = (
+        "分析以下会签回复邮件，判断两个问题：\n\n"
+        f"邮件主题：{subject[:200]}\n"
+        f"回复内容：{reply_text[:1000]}\n\n"
+        "判断规则：\n"
+        "1. is_simple_approval：回复内容是否仅为简单批示/确认？\n"
+        '   - 算简单批示："无异议"、"同意"、"已阅"、"照准"、"如拟"、"无补充意见"、"已阅知"、"无意见"、"拟同意"、"确认"\n'
+        "   - 不算简单批示：回复中带有条件、疑问、修改意见、反对、补充说明，或内容超过一句话的实质性讨论\n"
+        '2. mentions_xiangxin：回复内容中是否提到了"向总"、"xiangxin"或要求向总审批/确认/指导？\n\n'
+        "直接输出 JSON，不要任何其他文字：\n"
+        '{"is_simple_approval": false, "mentions_xiangxin": false}'
+    )
 
     if not settings.COZE_API_TOKEN or not settings.COZE_BOT_ID:
         logger.warning("Coze API 未配置，使用简单关键词分析")
@@ -239,8 +241,8 @@ async def update_cosign_tracking(
        b. 所有指定会签人都已回复 → 计划 24h 后自动完成
        c. 如果回复者是指定会签人但不是简单批示 → 取消自动完成（如果有）
     3. 如果无指定会签人：
-       a. xiangxin 简单批示 → 计划 24h 后自动完成
-       b. xiangxin 非简单批示 → blocked
+       a. vincent.xiang 简单批示 → 计划 24h 后自动完成
+       b. vincent.xiang 非简单批示 → blocked
     4. 非指定会签人的其他人回复，不影响自动完成机制
     """
     async with async_session() as db:
@@ -268,24 +270,24 @@ async def update_cosign_tracking(
                 logger.info(f"会签 #{work_item_id} 因提到向总而阻止自动完成")
             return
 
-        # 向总(xiàng xīn)本人的回复特殊处理
-        if sender == XIANGXIN_PREFIX:
+        # vincent.xiang 的回复特殊处理（规则2）
+        if sender == VINCENT_XIANG_PREFIX:
             if is_simple:
-                # 向总简单批示：如果无指定会签人，则触发自动完成
+                # vincent.xiang 简单批示：如果无指定会签人，则触发自动完成
                 designated = json.loads(item.cosign_designated_signers or "[]")
                 if not designated:
-                    # 规则2：无指定会签人 + 向总简单批示 → 24h 后自动完成
+                    # 规则2：无指定会签人 + vincent.xiang 简单批示 → 24h 后自动完成
                     if not item.cosign_auto_complete_at:
                         item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
                         await db.commit()
-                        logger.info(f"会签 #{work_item_id} 向总简单批示，计划24h后自动完成")
+                        logger.info(f"会签 #{work_item_id} vincent.xiang 简单批示，计划24h后自动完成")
             else:
-                # 向总实质性回复 → 阻止自动完成
+                # vincent.xiang 实质性回复 → 阻止自动完成
                 if not item.cosign_blocked:
                     item.cosign_blocked = True
                     item.cosign_auto_complete_at = None
                     await db.commit()
-                    logger.info(f"会签 #{work_item_id} 向总实质性回复，阻止自动完成")
+                    logger.info(f"会签 #{work_item_id} vincent.xiang 实质性回复，阻止自动完成")
             return
 
         # 其他人员的回复
@@ -317,7 +319,7 @@ async def update_cosign_tracking(
                     await db.commit()
                     logger.info(f"会签 #{work_item_id} 指定会签人 {sender} 实质性回复，取消自动完成")
             # 非指定会签人的回复不影响自动完成机制
-        # 如果没有指定会签人，且不是向总的回复，不做处理（等其他条件）
+        # 如果没有指定会签人，且不是 vincent.xiang 的回复，不做处理（等其他条件）
 
 
 async def check_and_auto_complete_cosign() -> List[int]:
@@ -345,9 +347,9 @@ async def check_and_auto_complete_cosign() -> List[int]:
             old_status = item.status
             item.status = WorkItemStatus.completed
             item.updated_at = now
+            ts = now.strftime('%Y-%m-%d %H:%M')
             item.latest_progress = (
-                f"[系统自动完成] 会签人已批复完毕，24小时无异议后系统自动标记完成 "
-                f"({now.strftime('%Y-%m-%d %H:%M')})"
+                f"[系统自动完成] 会签人已批复完毕，24小时无异议后系统自动标记完成 ({ts})"
             )
 
             # 记录状态变更日志
