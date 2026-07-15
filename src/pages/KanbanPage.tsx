@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Card, Tag, Select, Modal, Form, Input, message, notification, Spin, Empty, Typography, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
-import { LinkOutlined, LoadingOutlined, DownOutlined, UpOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Card, Tag, Select, Modal, Form, Input, message, Spin, Empty, Typography, Collapse, Row, Col, Badge, Space, Button, Tooltip } from 'antd';
+import { LinkOutlined, LoadingOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
-import { formatUTCDate } from '../utils/date';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
-import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, TYPE_LABELS, TYPE_COLORS } from '../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
 
 const { TextArea } = Input;
 
@@ -13,9 +12,6 @@ const { TextArea } = Input;
 const HR_COMMERCE_DEPT_ID = 1;
 
 const statusOrder: WorkItemStatusType[] = ['pending', 'overdue', 'completed', 'cancelled'];
-
-// 可折叠的状态列
-const collapsibleStatuses: WorkItemStatusType[] = ['completed', 'cancelled'];
 
 const DEPT_COLORS = ['#1890ff', '#52c41a', '#faad14', '#722ed1'];
 
@@ -49,9 +45,6 @@ const KanbanPage: React.FC = () => {
   const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // 折叠状态：key = "deptId_status"，true = 展开
-  const [expandedCols, setExpandedCols] = useState<Record<string, boolean>>({});
-
   // Edit modal state
   const [editModal, setEditModal] = useState<{ visible: boolean; item?: WorkItem }>({ visible: false });
   const [form] = Form.useForm();
@@ -60,16 +53,34 @@ const KanbanPage: React.FC = () => {
   const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
   const [emailLinkStatus, setEmailLinkStatus] = useState<Record<number, boolean>>({});
 
+  // 折叠状态：已完成和已取消列默认折叠
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<string>>(new Set());
+  const initCollapsedDone = useRef(false);
+  useEffect(() => {
+    if (!initCollapsedDone.current && kanbanData.length > 0) {
+      const initial = new Set<string>();
+      kanbanData.forEach(d => {
+        initial.add(`${d.department_id}-completed`);
+        initial.add(`${d.department_id}-cancelled`);
+      });
+      setCollapsedColumns(initial);
+      initCollapsedDone.current = true;
+    }
+  }, [kanbanData]);
+
+  const toggleColumn = useCallback((key: string) => {
+    setCollapsedColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   const canChange = useMemo(() => {
     if (!user) return false;
     return canChangeStatus(user.role, user.department_id);
   }, [user]);
-
-  const isExpanded = (deptId: number, status: string) => expandedCols[`${deptId}_${status}`] === true;
-
-  const toggleExpand = (deptId: number, status: string) => {
-    setExpandedCols(prev => ({ ...prev, [`${deptId}_${status}`]: !prev[`${deptId}_${status}`] }));
-  };
 
   const fetchItems = async () => {
     setLoading(true);
@@ -177,20 +188,6 @@ const KanbanPage: React.FC = () => {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
         window.open(res.url, '_blank');
-      } else if (res.search_url) {
-        notification.warning({
-          message: '未找到原邮件',
-          description: (
-            <span>
-              可尝试搜索原邮件：
-              <a href={res.search_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1890ff' }}>
-                在邮箱中搜索「{item.email_subject || item.title}」
-              </a>
-            </span>
-          ),
-          duration: 8,
-        });
-        setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       } else {
         message.warning(res.error || '未找到原邮件');
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
@@ -203,45 +200,6 @@ const KanbanPage: React.FC = () => {
   };
 
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
-
-  const renderCard = (item: WorkItem) => (
-    <Card
-      key={item.id}
-      size="small"
-      style={{ marginBottom: 6, cursor: 'pointer' }}
-      hoverable
-      onClick={() => openEditModal(item)}
-    >
-      <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
-      <div style={{ fontSize: 12, color: '#999' }}>
-        负责人: {getAssigneeName(item)}
-      </div>
-      {item.due_date && (
-        <div style={{ fontSize: 12, color: '#999' }}>
-          截止: {formatUTCDate(item.due_date)}
-        </div>
-      )}
-      <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Tag color={TYPE_COLORS[item.item_type] || 'blue'} style={{ fontSize: 11 }}>
-            {TYPE_LABELS[item.item_type] || item.item_type}
-          </Tag>
-          {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
-        </div>
-        {item.email_subject && (
-          <Tooltip title="查看原邮件">
-            <Button
-              type="text"
-              size="small"
-              icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
-              onClick={(e) => handleEmailLink(e, item)}
-              style={{ color: '#1890ff', padding: '0 4px' }}
-            />
-          </Tooltip>
-        )}
-      </div>
-    </Card>
-  );
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 100 }}><Spin size="large" /></div>;
@@ -269,54 +227,64 @@ const KanbanPage: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
                 {statusOrder.map((status) => {
                   const items = dept[status] as WorkItem[];
-                  const isCollapsible = collapsibleStatuses.includes(status);
-                  const expanded = isExpanded(dept.department_id, status);
-                  const visibleItems = isCollapsible && !expanded ? items.slice(0, 1) : items;
-                  const hiddenCount = isCollapsible && !expanded ? items.length - 1 : 0;
-
+                  const colKey = `${dept.department_id}-${status}`;
+                  const isCollapsed = collapsedColumns.has(colKey);
+                  const canCollapse = status === 'completed' || status === 'cancelled';
                   return (
                     <div key={status}>
-                      <div style={{ marginBottom: 8, fontWeight: 600, fontSize: 14 }}>
+                      <div
+                        style={{ marginBottom: 8, fontWeight: 600, fontSize: 14, cursor: canCollapse ? 'pointer' : 'default', display: 'flex', alignItems: 'center', userSelect: 'none' }}
+                        onClick={() => canCollapse && toggleColumn(colKey)}
+                      >
+                        {canCollapse && (
+                          <span style={{ marginRight: 4, fontSize: 10, color: '#999' }}>
+                            {isCollapsed ? <RightOutlined /> : <DownOutlined />}
+                          </span>
+                        )}
                         {STATUS_LABELS[status]}
                         <Tag color={STATUS_COLORS[status]} style={{ marginLeft: 6 }}>{items.length}</Tag>
                       </div>
-                      {items.length === 0 ? (
+                      {isCollapsed ? null : items.length === 0 ? (
                         <Empty description="暂无" style={{ padding: 16 }} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                       ) : (
-                        <>
-                          {visibleItems.map(renderCard)}
-                          {isCollapsible && hiddenCount > 0 && (
-                            <div
-                              style={{
-                                textAlign: 'center',
-                                padding: '6px 0',
-                                color: '#1890ff',
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                              }}
-                              onClick={() => toggleExpand(dept.department_id, status)}
-                            >
-                              还有 {hiddenCount} 项 <DownOutlined />
+                        items.map((item) => (
+                          <Card
+                            key={item.id}
+                            size="small"
+                            style={{ marginBottom: 6, cursor: 'pointer' }}
+                            hoverable
+                            onClick={() => openEditModal(item)}
+                          >
+                            <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
+                            <div style={{ fontSize: 12, color: '#999' }}>
+                              负责人: {getAssigneeName(item)}
                             </div>
-                          )}
-                          {isCollapsible && !expanded && hiddenCount === 0 && items.length === 1 && null}
-                          {isCollapsible && expanded && items.length > 1 && (
-                            <div
-                              style={{
-                                textAlign: 'center',
-                                padding: '6px 0',
-                                color: '#1890ff',
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                              }}
-                              onClick={() => toggleExpand(dept.department_id, status)}
-                            >
-                              收起 <UpOutlined />
+                            {item.due_date && (
+                              <div style={{ fontSize: 12, color: '#999' }}>
+                                截止: {new Date(item.due_date).toLocaleDateString()}
+                              </div>
+                            )}
+                            <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
+                                  {item.item_type === 'cosign' ? '会签' : '任务'}
+                                </Tag>
+                                {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
+                              </div>
+                              {emailLinkStatus[item.id] && (
+                                <Tooltip title="查看原邮件">
+                                  <Button
+                                    type="text"
+                                    size="small"
+                                    icon={emailLoadingId === item.id ? <LoadingOutlined /> : <LinkOutlined />}
+                                    onClick={(e) => handleEmailLink(e, item)}
+                                    style={{ color: '#1890ff', padding: '0 4px' }}
+                                  />
+                                </Tooltip>
+                              )}
                             </div>
-                          )}
-                        </>
+                          </Card>
+                        ))
                       )}
                     </div>
                   );
@@ -340,7 +308,7 @@ const KanbanPage: React.FC = () => {
           <Form.Item name="title" label="标题" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="content" label="内容"><TextArea rows={4} /></Form.Item>
           <Form.Item name="item_type" label="类型" initialValue="task">
-            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }, { value: 'report', label: '汇报' }]} />
+            <Select options={[{ value: 'task', label: '任务' }, { value: 'cosign', label: '会签' }]} />
           </Form.Item>
           <Form.Item name="status" label="状态" initialValue="pending">
             <Select options={statusOptions} disabled={!canChange} />

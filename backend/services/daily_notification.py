@@ -26,6 +26,7 @@ CC_RECIPIENTS = [
     "joanna.chen@ntg.com.hk",
     "leo.law@ntg.com.hk",
     "johnnie.wong@ntg.com.hk",
+    "adam.wang@ntg.com.hk",
 ]
 ALL_RECIPIENTS = list(set(TO_RECIPIENTS + CC_RECIPIENTS))
 
