@@ -275,6 +275,7 @@ class ResetPasswordRequest(BaseModel):
 class EmailUrlResponse(BaseModel):
     url: Optional[str] = None
     error: Optional[str] = None
+    search_url: Optional[str] = None
 
 
 class EmailLinkStatusResponse(BaseModel):
