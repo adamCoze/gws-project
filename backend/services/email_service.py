@@ -413,7 +413,7 @@ async def _process_email(
                         sender_prefix = extract_sender_prefix(from_addr)
                         reply_analysis = await analyze_cosign_reply(subject, body)
                         await update_cosign_tracking(
-                            work_item_id, sender_prefix, reply_analysis, subject
+                            work_item_id, sender_prefix, reply_analysis, subject, reply_body=body
                         )
                     except Exception as e:
                         logger.warning(f"会签追踪更新失败 (wi={work_item_id}): {e}")

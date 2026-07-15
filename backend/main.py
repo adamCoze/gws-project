@@ -49,10 +49,16 @@ async def lifespan(app: FastAPI):
     notification_task = asyncio.create_task(daily_notification_scheduler())
 
     # 启动会签自动完成定时检查（每10分钟检查一次）
-    from services.cosign_service import check_and_auto_complete_cosign, backfill_existing_cosign_items
+    from services.cosign_service import check_and_auto_complete_cosign, backfill_existing_cosign_items, migrate_add_payment_column
 
     async def cosign_autocomplete_scheduler():
-        # 启动时先做一次存量数据迁移
+        # 启动时先做数据库迁移
+        try:
+            await migrate_add_payment_column()
+        except Exception as e:
+            logger.error(f"数据库迁移失败: {e}", exc_info=True)
+
+        # 再做存量数据迁移
         try:
             await backfill_existing_cosign_items()
         except Exception as e:

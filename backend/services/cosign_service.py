@@ -28,6 +28,12 @@ SIMPLE_APPROVAL_KEYWORDS = [
     "已审核，同意", "已阅，同意",
 ]
 
+# 支付确认关键词（必须带有"已完成"等前缀才算）
+PAYMENT_CONFIRM_KEYWORDS = [
+    "已完成支付", "已给支票", "已支付完成", "已完成付款",
+    "已开出支票", "已交付支票", "已完成汇款",
+]
+
 
 # ────────────────────────────────────────────
 # 工具函数
@@ -182,6 +188,21 @@ async def analyze_cosign_reply(subject: str, body: str) -> Dict:
         return _simple_cosign_analysis(reply_text)
 
 
+def detect_payment_confirmation(text: str) -> bool:
+    """检测回复文本中是否包含支付确认表述"""
+    if not text:
+        return False
+    return any(kw in text for kw in PAYMENT_CONFIRM_KEYWORDS)
+
+
+def is_xiangxin_agreement(reply_analysis: Dict, sender_prefix: str) -> bool:
+    """判断是否为 xiangxin 回复了"同意"（不阻止自动完成）"""
+    if sender_prefix.lower().strip() != XIANGXIN_PREFIX:
+        return False
+    # xiangxin 回复"同意"（简单批示）→ 不阻止
+    return reply_analysis.get("is_simple_approval", False)
+
+
 def _simple_cosign_analysis(text: str) -> Dict:
     """简单的关键词分析（AI 不可用时的降级方案）"""
     text_lower = text.lower()
@@ -217,6 +238,7 @@ async def initialize_cosign_tracking(work_item_id: int):
         item.cosign_requires_xiangxin = requires_xiangxin
         item.cosign_blocked = False
         item.cosign_auto_complete_at = None  # NULL 表示尚未计划
+        item.cosign_payment_confirmed = False
 
         await db.commit()
         logger.info(
@@ -230,20 +252,18 @@ async def update_cosign_tracking(
     sender_prefix: str,
     reply_analysis: Dict,
     email_subject: str = "",
+    reply_body: str = "",
 ):
     """
     更新会签追踪（收到回复邮件后调用）。
 
     逻辑：
-    1. 如果回复提到向总 → 标记 blocked=True，永不自动完成
-    2. 如果有指定会签人：
-       a. 回复者是指定会签人且是简单批示 → 加入已回复列表
-       b. 所有指定会签人都已回复 → 计划 24h 后自动完成
-       c. 如果回复者是指定会签人但不是简单批示 → 取消自动完成（如果有）
-    3. 如果无指定会签人：
-       a. vincent.xiang 简单批示 → 计划 24h 后自动完成
-       b. vincent.xiang 非简单批示 → blocked
-    4. 非指定会签人的其他人回复，不影响自动完成机制
+    1. 规则3（最高）：回复提到向总 → blocked=True，永不自动完成
+    2. 支付确认规则：回复包含"已完成支付"等 → 标记支付确认 + 24h后自动完成
+       （xiangxin 回复非"同意"内容则阻止）
+    3. 规则1：有指定会签人 → 所有会签人简单批示 → 24h后自动完成
+    4. xiangxin 特殊逻辑：回复"同意"不阻止自动完成，回复其他内容阻止
+    5. 非指定会签人的其他人回复，不影响自动完成机制
     """
     async with async_session() as db:
         result = await db.execute(
@@ -261,7 +281,7 @@ async def update_cosign_tracking(
         mentions_xiangxin = reply_analysis.get("mentions_xiangxin", False)
         sender = sender_prefix.lower().strip()
 
-        # 规则3: 任何邮件提到向总会签/指导/确认 → 阻止自动完成
+        # 规则3（最高优先级）: 任何邮件提到向总会签/指导/确认 → 阻止自动完成
         if mentions_xiangxin:
             if not item.cosign_blocked:
                 item.cosign_blocked = True
@@ -270,31 +290,38 @@ async def update_cosign_tracking(
                 logger.info(f"会签 #{work_item_id} 因提到向总而阻止自动完成")
             return
 
-        # vincent.xiang 的回复特殊处理（规则2）
-        if sender == VINCENT_XIANG_PREFIX:
+        # xiangxin 特殊逻辑：回复"同意"不阻止，回复其他内容阻止
+        if sender == XIANGXIN_PREFIX:
             if is_simple:
-                # vincent.xiang 简单批示：如果无指定会签人，则触发自动完成
-                designated = json.loads(item.cosign_designated_signers or "[]")
-                if not designated:
-                    # 规则2：无指定会签人 + vincent.xiang 简单批示 → 24h 后自动完成
-                    if not item.cosign_auto_complete_at:
-                        item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
-                        await db.commit()
-                        logger.info(f"会签 #{work_item_id} vincent.xiang 简单批示，计划24h后自动完成")
+                # xiangxin 回复"同意" → 不阻止自动完成
+                logger.info(f"会签 #{work_item_id} xiangxin 回复同意，不阻止自动完成")
             else:
-                # vincent.xiang 实质性回复 → 阻止自动完成
+                # xiangxin 回复非"同意"内容 → 阻止自动完成
                 if not item.cosign_blocked:
                     item.cosign_blocked = True
                     item.cosign_auto_complete_at = None
                     await db.commit()
-                    logger.info(f"会签 #{work_item_id} vincent.xiang 实质性回复，阻止自动完成")
-            return
+                    logger.info(f"会签 #{work_item_id} xiangxin 实质性回复，阻止自动完成")
+                return
 
-        # 其他人员的回复
+        # 支付确认检测：回复中包含"已完成支付""已给支票"等表述
+        reply_text = extract_reply_text(reply_body) if reply_body else ""
+        if detect_payment_confirmation(reply_text):
+            if not item.cosign_payment_confirmed:
+                item.cosign_payment_confirmed = True
+                if not item.cosign_blocked and not item.cosign_auto_complete_at:
+                    item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
+                    await db.commit()
+                    logger.info(f"会签 #{work_item_id} 检测到支付确认，计划24h后自动完成")
+                else:
+                    await db.commit()
+                    logger.info(f"会签 #{work_item_id} 检测到支付确认，但已被阻止或已计划自动完成")
+            return  # 支付确认后不再执行后续规则
+
+        # 规则1：有指定会签人的情况
         designated = json.loads(item.cosign_designated_signers or "[]")
 
         if designated:
-            # 有指定会签人：规则1
             if sender in designated and is_simple:
                 # 是指定会签人的简单批示 → 记录
                 replied = json.loads(item.cosign_replied_signers or "[]")
@@ -319,7 +346,6 @@ async def update_cosign_tracking(
                     await db.commit()
                     logger.info(f"会签 #{work_item_id} 指定会签人 {sender} 实质性回复，取消自动完成")
             # 非指定会签人的回复不影响自动完成机制
-        # 如果没有指定会签人，且不是 vincent.xiang 的回复，不做处理（等其他条件）
 
 
 async def check_and_auto_complete_cosign() -> List[int]:
@@ -348,9 +374,18 @@ async def check_and_auto_complete_cosign() -> List[int]:
             item.status = WorkItemStatus.completed
             item.updated_at = now
             ts = now.strftime('%Y-%m-%d %H:%M')
-            item.latest_progress = (
-                f"[系统自动完成] 会签人已批复完毕，24小时无异议后系统自动标记完成 ({ts})"
-            )
+
+            # 根据自动完成原因生成不同的消息
+            if item.cosign_payment_confirmed:
+                item.latest_progress = (
+                    f"[系统自动完成] 支付确认后24小时内无异议，系统自动标记完成 ({ts})"
+                )
+                remark = "会签自动完成：支付确认后24小时内无异议"
+            else:
+                item.latest_progress = (
+                    f"[系统自动完成] 会签人已批复完毕，24小时无异议后系统自动标记完成 ({ts})"
+                )
+                remark = "会签自动完成：所有会签人24小时内无异议"
 
             # 记录状态变更日志
             log = StatusChangeLog(
@@ -358,7 +393,7 @@ async def check_and_auto_complete_cosign() -> List[int]:
                 old_status=old_status,
                 new_status="completed",
                 operator_id=None,
-                remark="会签自动完成：所有会签人24小时内无异议",
+                remark=remark,
             )
             db.add(log)
             completed_ids.append(item.id)
@@ -390,8 +425,30 @@ async def backfill_existing_cosign_items():
             item.cosign_requires_xiangxin = requires_xiangxin
             item.cosign_blocked = False
             item.cosign_auto_complete_at = None
+            item.cosign_payment_confirmed = False
             count += 1
 
         if count > 0:
             await db.commit()
             logger.info(f"已为 {count} 个已有会签工作项初始化追踪字段")
+
+async def migrate_add_payment_column():
+    """为 work_items 表添加 cosign_payment_confirmed 列（如果不存在）"""
+    from database import engine
+    import aiosqlite
+
+    db_url = str(engine.url).replace("sqlite+aiosqlite:///", "")
+    try:
+        async with aiosqlite.connect(db_url) as db:
+            cursor = await db.execute("PRAGMA table_info(work_items)")
+            columns = [row[1] for row in await cursor.fetchall()]
+
+            if "cosign_payment_confirmed" not in columns:
+                await db.execute(
+                    "ALTER TABLE work_items ADD COLUMN cosign_payment_confirmed BOOLEAN DEFAULT 0"
+                )
+                logger.info("已为 work_items 表添加 cosign_payment_confirmed 列")
+            else:
+                logger.info("cosign_payment_confirmed 列已存在，跳过迁移")
+    except Exception as e:
+        logger.error(f"数据库迁移失败: {e}", exc_info=True)

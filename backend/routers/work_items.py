@@ -1,4 +1,3 @@
-from urllib.parse import quote
 """工作项路由"""
 import re
 import logging
@@ -116,14 +115,6 @@ async def _resolve_assignee_names(db: AsyncSession, items: list) -> None:
             item.assignee_names = None
 
 
-
-def _build_email_search_url(email_subject: str | None, title: str | None, user_email: str) -> str:
-    """生成阿里邮箱搜索URL，用于找不到原邮件时的备选"""
-    keyword = email_subject or title or ""
-    email_prefix = user_email.split("@")[0] if user_email else ""
-    base = "https://mail.sg.aliyun.com/alimail/entries/v5.1/search"
-    return f"{base}?keyword={quote(keyword)}&emailPrefix={quote(email_prefix)}"
-
 @router.get("", response_model=List[WorkItemOut])
 async def list_work_items(
     status: Optional[str] = None,
@@ -132,9 +123,7 @@ async def list_work_items(
     assignee_email_prefix: Optional[str] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1),
-    sort_by: str = Query(None, description="排序字段: updated_at, created_at, due_date"),
-    sort_order: str = Query("desc", description="排序方向: asc, desc"),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """获取工作项列表"""
@@ -159,16 +148,7 @@ async def list_work_items(
     if keyword:
         query = query.where(WorkItem.title.contains(keyword))
 
-    # 排序
-    if sort_by and hasattr(WorkItem, sort_by):
-        order_col = getattr(WorkItem, sort_by)
-        if sort_order == "asc":
-            query = query.order_by(order_col.asc())
-        else:
-            query = query.order_by(order_col.desc())
-    else:
-        query = query.order_by(WorkItem.created_at.desc())
-
+    query = query.order_by(WorkItem.created_at.desc())
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
@@ -205,8 +185,6 @@ async def list_my_work_items(
     if conditions:
         query = query.where(or_(*conditions))
 
-    # 汇报类工作不出现在"我的工作"中
-    query = query.where(WorkItem.item_type != "report")
     query = query.order_by(WorkItem.created_at.desc())
     result = await db.execute(query)
     items = result.scalars().all()
@@ -238,8 +216,8 @@ async def get_email_link_status(
     if not item_ids:
         return EmailLinkStatusResponse(items={})
 
-    # 查询所有ID
-    # 不限制ID数量
+    # 限制最多100个ID
+    item_ids = item_ids[:100]
 
     # 查缓存
     result = await db.execute(
@@ -312,11 +290,7 @@ async def get_work_item_email_url(
 
     # 检查是否有关联邮件
     if not item.email_subject:
-        return EmailUrlResponse(
-            url=None,
-            error="该工作项无关联邮件",
-            search_url=_build_email_search_url(item.email_subject, item.title, current_user.email or "")
-        )
+        return EmailUrlResponse(url=None, error="该工作项无关联邮件")
 
     # 获取当前用户邮箱
     user_email = current_user.email
@@ -343,11 +317,7 @@ async def get_work_item_email_url(
             return EmailUrlResponse(url=cached_url)
         elif cache_row.status == "not_found":
             logger.info(f"缓存命中(not_found): work_item={item_id}, user={user_email}")
-            return EmailUrlResponse(
-                url=None,
-                error="未找到原邮件，可能已被删除或移动到其他文件夹",
-                search_url=_build_email_search_url(item.email_subject, item.title, user_email)
-            )
+            return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹")
 
     # === Tier 2: 缓存未命中，调API查找 ===
     # 获取 internetMessageId
@@ -375,11 +345,7 @@ async def get_work_item_email_url(
             _conn.close()
         except Exception as e:
             logger.error(f"缓存写入失败: {e}")
-        return EmailUrlResponse(
-            url=None,
-            error="未找到邮件的Message-ID",
-            search_url=_build_email_search_url(item.email_subject, item.title, user_email)
-        )
+        return EmailUrlResponse(url=None, error="未找到邮件的Message-ID")
 
     # 获取邮件日期（用于缩小API搜索范围）
     email_date = item.email_date or item.created_at
@@ -436,11 +402,7 @@ async def get_work_item_email_url(
             logger.info(f"not_found缓存写入成功: work_item={item_id}, user={user_email}")
         except Exception as cache_err:
             logger.error(f"not_found缓存写入失败: work_item={item_id}, user={user_email}, error={cache_err}")
-        return EmailUrlResponse(
-            url=None,
-            error="未找到原邮件，可能已被删除或移动到其他文件夹",
-            search_url=_build_email_search_url(item.email_subject, item.title, user_email)
-        )
+        return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹")
 
 
 @router.post("", response_model=WorkItemOut, status_code=201)

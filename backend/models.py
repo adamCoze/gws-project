@@ -116,6 +116,7 @@ class WorkItem(Base):
     cosign_requires_xiangxin = Column(Boolean, default=False)  # 是否需要向总会签
     cosign_blocked = Column(Boolean, default=False)            # 是否被阻止自动完成
     cosign_auto_complete_at = Column(DateTime, nullable=True)  # 计划自动完成时间
+    cosign_payment_confirmed = Column(Boolean, default=False)  # 支付确认标记（收到"已完成支付"等表述）
     latest_progress = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

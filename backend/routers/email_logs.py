@@ -16,7 +16,7 @@ router = APIRouter(prefix="/email-logs", tags=["邮件日志"])
 @router.get("", response_model=List[EmailLogOut])
 async def list_email_logs(
     process_result: Optional[str] = None,
-    limit: int = Query(default=50, ge=1),
+    limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user=Depends(require_role(2)),
