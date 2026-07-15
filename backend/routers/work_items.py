@@ -123,7 +123,7 @@ async def list_work_items(
     assignee_email_prefix: Optional[str] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
     """获取工作项列表"""
