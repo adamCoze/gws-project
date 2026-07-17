@@ -217,8 +217,8 @@ async def get_email_link_status(
     if not item_ids:
         return EmailLinkStatusResponse(items={})
 
-    # 限制最多100个ID
-    item_ids = item_ids[:100]
+    # 限制最多1000个ID
+    item_ids = item_ids[:1000]
 
     # 查缓存
     result = await db.execute(
