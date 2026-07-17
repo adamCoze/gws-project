@@ -250,6 +250,16 @@ async def get_email_link_status(
             else:
                 link_status[row[0]] = False
     
+
+    # 对于缓存为not_found的项，如果有message_id，仍然乐观显示按钮
+    not_found_ids = [wid for wid, status in link_status.items() if not status]
+    if not_found_ids:
+        items_result = await db.execute(
+            select(WorkItem.id, WorkItem.message_id).where(WorkItem.id.in_(not_found_ids))
+        )
+        for row in items_result.all():
+            if row[1]:
+                link_status[row[0]] = True  # 有message_id，乐观显示按钮
     return EmailLinkStatusResponse(items=link_status)
 
 @router.get("/{item_id}", response_model=WorkItemOut)
