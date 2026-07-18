@@ -112,10 +112,14 @@ _COZE_CHAT_URL = "/v3/chat"
 
 
 async def analyze_email_with_ai(subject: str, body: str, to_addrs: str = "", cc_addrs: str = "") -> Optional[Dict[str, Any]]:
-    """使用 Coze Bot API 分析邮件内容"""
+    """使用 Coze Bot API 分析邮件内容。
+    
+    返回 None 表示 AI 分析失败（Token 过期、API 错误等），
+    调用方应停止创建低质量工作项，改为记录日志并发送告警。
+    """
     if not settings.COZE_API_TOKEN or not settings.COZE_BOT_ID:
-        logger.warning("Coze API Token 或 Bot ID 未配置，使用默认分析")
-        return _fallback_analysis(subject, body)
+        logger.error("Coze API Token 或 Bot ID 未配置，无法分析邮件")
+        return None
 
     bot_content = ""
     try:
@@ -183,7 +187,7 @@ async def analyze_email_with_ai(subject: str, body: str, to_addrs: str = "", cc_
 
             if not bot_content:
                 logger.error("Coze Bot 返回空内容, chat_status=%s", chat_status)
-                return _fallback_analysis(subject, body)
+                return None
 
             content = bot_content.strip()
             if content.startswith("```"):
@@ -199,17 +203,21 @@ async def analyze_email_with_ai(subject: str, body: str, to_addrs: str = "", cc_
 
     except json.JSONDecodeError as e:
         logger.error("Coze Bot 返回内容 JSON 解析失败: %s, content=%s", e, bot_content[:200])
-        return _fallback_analysis(subject, body)
+        return None
     except httpx.HTTPError as e:
         logger.error("Coze API 调用失败: %s", e)
-        return _fallback_analysis(subject, body)
+        return None
     except Exception as e:
-        logger.error("AI 分析异常: %s", e, exc_info=True)
-        return _fallback_analysis(subject, body)
+        logger.error("Coze AI 分析异常: %s", e, exc_info=True)
+        return None
 
 
 def _fallback_analysis(subject: str, body: str) -> Dict[str, Any]:
-    """降级分析（当 AI 不可用时）"""
+    """降级分析（已弃用 - 仅保留供手动调用场景使用）。
+    
+    注意：analyze_email_with_ai() 不再自动调用此函数。
+    AI 分析失败时应返回 None，由调用方决定是否创建低质量工作项。
+    """
     is_cosign = any(kw in subject + body for kw in ["会签", "审批", "签批", "签署"])
     report_keywords = ["报告", "周报", "月报", "汇总", "报表", "简报", "情况说明", "查收", "报送", "每日电邮", "例会纪要", "例会纲要", "信息汇总", "工作总结"]
     is_report = not is_cosign and any(kw in subject + body for kw in report_keywords)

@@ -8,6 +8,10 @@ import re
 from difflib import SequenceMatcher
 from email.header import decode_header
 from typing import Optional
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +35,11 @@ DEFAULT_ADMIN_EMAIL = "adam.wang@ntg.com.hk"
 _monitor_task: Optional[asyncio.Task] = None
 _running = False
 MAX_RETRY_COUNT = 2
+
+# ── AI 失败告警通知（防刷屏：同一小时内最多1封）──
+_last_alert_time: float = 0
+_alert_cooldown_seconds = 3600  # 1小时冷却
+_pending_failures: list = []  # 累积的失败信息
 
 
 def _decode_str(s) -> str:
@@ -200,6 +209,105 @@ def _extract_email_prefixes(addr_str: str) -> list[str]:
     return prefixes
 
 
+
+async def _send_ai_failure_alert(config_email: str, failures: list):
+    """发送 AI 分析失败告警邮件到管理员。
+    
+    Args:
+        config_email: 监控邮箱地址
+        failures: 失败列表，每项为 {"subject": ..., "from": ..., "error": ...}
+    """
+    import time
+    global _last_alert_time, _pending_failures
+    
+    now = time.time()
+    _pending_failures.extend(failures)
+    
+    # 冷却期内不发送，累积失败
+    if now - _last_alert_time < _alert_cooldown_seconds:
+        logger.info(f"AI告警冷却中，累积 {_pending_failures} 条失败记录")
+        return
+    
+    # 读取 SMTP 配置
+    try:
+        async with async_session() as db:
+            result = await db.execute(
+                select(EmailConfig).where(EmailConfig.is_active == True).limit(1)
+            )
+            smtp_config = result.scalar_one_or_none()
+        
+        if not smtp_config:
+            logger.error("无可用SMTP配置，无法发送AI失败告警")
+            return
+        
+        # 构建邮件内容
+        failure_count = len(_pending_failures)
+        failure_details = "\n".join([
+            f"  • 主题: {f['subject'][:60]} | 发件人: {f.get('from', '未知')} | 错误: {f.get('error', '未知')}"
+            for f in _pending_failures
+        ])
+        
+        subject = f"[GWS告警] AI邮件分析失败 ({failure_count}封邮件)"
+        body = f"""集团工作跟进系统 - AI分析失败告警
+{'='*50}
+
+监控邮箱: {config_email}
+告警时间: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC
+失败数量: {failure_count} 封邮件
+
+失败详情:
+{failure_details}
+
+{'='*50}
+可能原因:
+  1. Coze API Token 已过期（最常见 - 需每月更新）
+  2. Coze Bot 服务异常
+  3. 网络连接问题
+
+处理方式:
+  请登录 Coze 开放平台 (https://www.coze.cn) 重新生成 API Token，
+  然后更新服务器 /opt/gws-project/.env 中的 COZE_API_TOKEN 并重启容器:
+    cd /opt/gws-project && docker compose down && docker compose up -d
+
+此邮件由系统自动发送，冷却时间1小时内不会重复告警。
+"""
+        
+        # 发送 SMTP 邮件
+        msg = MIMEMultipart()
+        msg['From'] = smtp_config.username
+        msg['To'] = DEFAULT_ADMIN_EMAIL
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _smtp_send, smtp_config, msg)
+        
+        _last_alert_time = now
+        _pending_failures.clear()
+        logger.info(f"AI失败告警邮件已发送至 {DEFAULT_ADMIN_EMAIL}")
+        
+    except Exception as e:
+        logger.error(f"发送AI失败告警邮件失败: {e}")
+
+
+def _smtp_send(config, msg):
+    """同步发送 SMTP 邮件（在线程池中执行）"""
+    try:
+        if config.use_tls:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(config.smtp_host, config.smtp_port, context=context, timeout=30) as server:
+                server.login(config.username, config.password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(config.smtp_host, config.smtp_port, timeout=30) as server:
+                server.starttls()
+                server.login(config.username, config.password)
+                server.send_message(msg)
+    except Exception as e:
+        logger.error(f"SMTP发送失败: {e}")
+        raise
+
+
 async def _cache_email_url_for_recipients(
     message_id: str,
     to_addrs: str,
@@ -279,6 +387,14 @@ async def _process_email_with_retry(
                 await asyncio.sleep(2)
             else:
                 logger.warning(f"AI分析失败，已达最大重试次数: {subject}")
+                # 发送告警邮件通知管理员
+                try:
+                    await _send_ai_failure_alert(
+                        config.email_address,
+                        [{"subject": subject, "from": from_addr, "error": "AI分析失败(重试耗尽)"}]
+                    )
+                except Exception as e:
+                    logger.error(f"发送AI失败告警异常: {e}")
                 return
         else:
             retry_count += 1
