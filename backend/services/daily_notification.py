@@ -144,13 +144,17 @@ async def _get_pending_items_grouped(db: AsyncSession) -> dict:
 
 async def _get_overdue_items_grouped(db: AsyncSession) -> dict:
     """
-    查询所有已逾时工作项（status=overdue），按部门+截止月份分组。
+    查询所有已逾时工作项（status=pending 且 due_date < today，动态计算），按部门+截止月份分组。
     返回: {dept_id: {month_key: [items]}}
     """
+    today_str = date.today().strftime("%Y-%m-%d")
     result = await db.execute(
         select(WorkItem)
         .options(selectinload(WorkItem.department))
-        .where(WorkItem.status == "overdue")
+        .where(
+            WorkItem.status == "pending",
+            WorkItem.due_date < today_str,
+        )
         .order_by(WorkItem.department_id, WorkItem.due_date)
     )
     items = result.scalars().all()

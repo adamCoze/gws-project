@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 from database import get_db
 from models import WorkItem, WorkItemStatus, Department, User, StatusChangeLog, EmailLog, EmailUrlCache
@@ -158,7 +159,7 @@ async def list_work_items(
     now = datetime.utcnow()
     for item in items:
         if item.status == "pending" and item.due_date and item.due_date < now:
-            item.status = "overdue"
+            set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, items)
     return items
 
@@ -193,7 +194,7 @@ async def list_my_work_items(
     now = datetime.utcnow()
     for item in items:
         if item.status == "pending" and item.due_date and item.due_date < now:
-            item.status = "overdue"
+            set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, items)
     return items
 
@@ -281,7 +282,7 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
     # 计算派生状态：pending 且过期 → overdue
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
-        item.status = "overdue"
+        set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, [item])
     return item
 
@@ -445,7 +446,7 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
     item = result.scalar_one()
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
-        item.status = "overdue"
+        set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, [item])
     return item
 
@@ -537,7 +538,7 @@ async def update_work_item(
     item = result.scalar_one()
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
-        item.status = "overdue"
+        set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, [item])
     return item
 
@@ -596,7 +597,7 @@ async def change_status(
     item = result.scalar_one()
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
-        item.status = "overdue"
+        set_committed_value(item, "status", "overdue")
     await _resolve_assignee_names(db, [item])
     return item
 
