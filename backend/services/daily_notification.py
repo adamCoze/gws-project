@@ -18,15 +18,13 @@ from models import WorkItem, Department, EmailConfig, StatusChangeLog
 logger = logging.getLogger(__name__)
 
 # 收件人 & 抄送人
-TO_RECIPIENTS = ["leo.law@ntg.com.hk"]
+TO_RECIPIENTS = ["adam.wang@ntg.com.hk"]
 CC_RECIPIENTS = [
     "xiangxin@ntg.com.hk",
     "vincent.xiang@ntg.com.hk",
     "thomas.tao@ntg.com.hk",
     "joanna.chen@ntg.com.hk",
-    "leo.law@ntg.com.hk",
     "johnnie.wong@ntg.com.hk",
-    "adam.wang@ntg.com.hk",
 ]
 ALL_RECIPIENTS = list(set(TO_RECIPIENTS + CC_RECIPIENTS))
 
