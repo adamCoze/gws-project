@@ -320,9 +320,12 @@ def _build_html_email(pending_grouped: dict, overdue_grouped: dict, completed_co
         if not ordered_months:
             continue
 
-        # 统计该部门总数
-        dept_pending_count = sum(len(items) for items in dept_pending.values())
+        # 统计该部门总数（待跟进不含已逾时，避免重复计数）
         dept_overdue_count = sum(len(items) for items in dept_overdue.values())
+        dept_overdue_ids = {item.id for dept_months in dept_overdue.values() for item in dept_months}
+        dept_pending_count = sum(
+            1 for items in dept_pending.values() for item in items if item.id not in dept_overdue_ids
+        )
         dept_completed_count = sum(dept_completed.values())
 
         total_pending += dept_pending_count
@@ -339,7 +342,10 @@ def _build_html_email(pending_grouped: dict, overdue_grouped: dict, completed_co
                 continue
 
             month_label = _month_display(month_key) if month_key != "无截止日期" else "无截止日期"
-            pending_count = len(pending_items)
+            # 待跟进 = pending 中排除已逾时的（避免重复计数）
+            overdue_ids = {item.id for item in overdue_items}
+            non_overdue_pending = [item for item in pending_items if item.id not in overdue_ids]
+            pending_count = len(non_overdue_pending)
             overdue_count = len(overdue_items)
 
             # 月份标题
@@ -350,16 +356,16 @@ def _build_html_email(pending_grouped: dict, overdue_grouped: dict, completed_co
                 </h3>
             </div>"""
 
-            # 待跟进表格
-            if pending_items:
-                month_sections += _render_item_table(pending_items, "pending")
+            # 待跟进表格（仅非逾期项）
+            if non_overdue_pending:
+                month_sections += _render_item_table(non_overdue_pending, "pending")
 
             # 已逾时表格
             if overdue_items:
                 month_sections += _render_item_table(overdue_items, "overdue")
 
             # 已完成仅显示数量（如果有已完成但没有待跟进和逾时，也显示一行提示）
-            if completed_count > 0 and not pending_items and not overdue_items:
+            if completed_count > 0 and not non_overdue_pending and not overdue_items:
                 month_sections += f"""
                 <p style="color: #52c41a; font-size: 13px; padding: 8px 12px; background: #f0f9eb; border-radius: 4px; margin: 5px 0;">
                     ✓ 当月已完成 {completed_count} 项
