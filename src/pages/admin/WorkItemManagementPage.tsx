@@ -1,7 +1,7 @@
 import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, notification, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, SortAscendingOutlined, SortDescendingOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, CaretUpOutlined, CaretDownOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
@@ -40,15 +40,17 @@ const WorkItemManagementPage: React.FC = () => {
   const [remark, setRemark] = useState('');
   const { user } = useAuth();
   const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
+  const [emailLinkStatus, setEmailLinkStatus] = useState<Record<number, boolean>>({});
 
   // Filter state
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
+  const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDept, setFilterDept] = useState<number | undefined>(undefined);
   const [filterAssignee, setFilterAssignee] = useState<number | undefined>(undefined);
 
-  // Sort state
-  const [sortDueDate, setSortDueDate] = useState<'asc' | 'desc' | null>(null);
-  const [sortUpdatedAt, setSortUpdatedAt] = useState<'asc' | 'desc' | null>(null);
+  // Unified sort state
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null);
 
   const canDelete = useMemo(() => {
     if (!user) return false;
@@ -60,6 +62,20 @@ const WorkItemManagementPage: React.FC = () => {
     if (!user) return false;
     return canChangeStatus(user.role, user.department_id);
   }, [user]);
+
+  // Helper: compute effective status (including overdue from due_date)
+  const getEffectiveStatus = (item: WorkItem): string => {
+    if (item.status === 'pending' && item.due_date && new Date(item.due_date) < new Date()) {
+      return 'overdue';
+    }
+    return item.status;
+  };
+
+  const getAssigneeName = (item: WorkItem): string => {
+    if (item.assignee_names) return item.assignee_names;
+    if (item.assignee?.real_name) return item.assignee.real_name;
+    return '未分配';
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -117,6 +133,9 @@ const WorkItemManagementPage: React.FC = () => {
     if (filterType) {
       result = result.filter((i) => i.item_type === filterType);
     }
+    if (filterStatus) {
+      result = result.filter((i) => getEffectiveStatus(i) === filterStatus);
+    }
     if (filterDept) {
       result = result.filter((i) => i.department_id === filterDept);
     }
@@ -129,23 +148,57 @@ const WorkItemManagementPage: React.FC = () => {
         );
       }
     }
-    if (sortDueDate) {
+
+    // Sorting
+    if (sortField && sortOrder) {
       result.sort((a, b) => {
-        const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
-        const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
-        return sortDueDate === 'asc' ? da - db : db - da;
-      });
-    }
-    if (sortUpdatedAt) {
-      result.sort((a, b) => {
-        const ua = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-        const ub = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-        return sortUpdatedAt === 'asc' ? ua - ub : ub - ua;
+        let cmp = 0;
+        switch (sortField) {
+          case 'title':
+            cmp = (a.title || '').localeCompare(b.title || '', 'zh-CN');
+            break;
+          case 'item_type':
+            cmp = (TYPE_LABELS[a.item_type] || a.item_type || '').localeCompare(TYPE_LABELS[b.item_type] || b.item_type || '', 'zh-CN');
+            break;
+          case 'status': {
+            const sa = getEffectiveStatus(a);
+            const sb = getEffectiveStatus(b);
+            cmp = (STATUS_LABELS[sa] || sa || '').localeCompare(STATUS_LABELS[sb] || sb || '', 'zh-CN');
+            break;
+          }
+          case 'department': {
+            const da = a.department?.name || '';
+            const db = b.department?.name || '';
+            cmp = da.localeCompare(db, 'zh-CN');
+            break;
+          }
+          case 'assignee': {
+            const na = getAssigneeName(a);
+            const nb = getAssigneeName(b);
+            cmp = na.localeCompare(nb, 'zh-CN');
+            break;
+          }
+          case 'due_date': {
+            const dva = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+            const dvb = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+            cmp = dva - dvb;
+            break;
+          }
+          case 'updated_at': {
+            const ua = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+            const ub = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+            cmp = ua - ub;
+            break;
+          }
+          default:
+            break;
+        }
+        return sortOrder === 'asc' ? cmp : -cmp;
       });
     }
 
     return result;
-  }, [items, filterType, filterDept, filterAssignee, sortDueDate, sortUpdatedAt, users]);
+  }, [items, filterType, filterStatus, filterDept, filterAssignee, sortField, sortOrder, users]);
 
   const resolveAssigneeIds = (item: WorkItem): number[] => {
     if (item.assignee_email_prefix) {
@@ -261,13 +314,6 @@ const WorkItemManagementPage: React.FC = () => {
   };
 
 
-  const getAssigneeName = (item: WorkItem): string => {
-    if (item.assignee_names) return item.assignee_names;
-    if (item.assignee?.real_name) return item.assignee.real_name;
-    return '未分配';
-  };
-
-
   const handleEmailLink = async (item: WorkItem) => {
     setEmailLoadingId(item.id);
     try {
@@ -299,58 +345,84 @@ const WorkItemManagementPage: React.FC = () => {
     }
   };
 
-
+  // Status options: exclude overdue (not manually settable)
   const statusOptions = Object.entries(STATUS_LABELS).filter(([k]) => k !== 'overdue').map(([k, v]) => ({ value: k, label: v }));
 
-  const toggleSortDueDate = () => {
-    if (sortDueDate === null) setSortDueDate('asc');
-    else if (sortDueDate === 'asc') setSortDueDate('desc');
-    else setSortDueDate(null);
-    setSortUpdatedAt(null);
+  // Status filter options: include overdue (for display/filtering)
+  const statusFilterOptions = Object.entries(STATUS_LABELS).map(([k, v]) => ({ value: k, label: v }));
+
+  // Toggle sort by field
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortOrder === 'asc') setSortOrder('desc');
+      else if (sortOrder === 'desc') { setSortField(null); setSortOrder(null); }
+      else setSortOrder('asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
   };
 
-  const toggleSortUpdatedAt = () => {
-    if (sortUpdatedAt === null) setSortUpdatedAt('desc');
-    else if (sortUpdatedAt === 'desc') setSortUpdatedAt('asc');
-    else setSortUpdatedAt(null);
-    setSortDueDate(null);
+  // Render sortable column title
+  const renderSortTitle = (label: string, field: string) => {
+    const isActive = sortField === field;
+    return (
+      <span
+        style={{ cursor: 'pointer', userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        onClick={() => toggleSort(field)}
+      >
+        {label}
+        <span style={{ display: 'inline-flex', flexDirection: 'column', lineHeight: 1, fontSize: 10 }}>
+          <CaretUpOutlined style={{ fontSize: 9, marginBottom: -2, color: isActive && sortOrder === 'asc' ? '#1890ff' : '#bbb' }} />
+          <CaretDownOutlined style={{ fontSize: 9, marginTop: -2, color: isActive && sortOrder === 'desc' ? '#1890ff' : '#bbb' }} />
+        </span>
+      </span>
+    );
   };
 
   const clearFilters = () => {
     setFilterType(undefined);
+    setFilterStatus(undefined);
     setFilterDept(undefined);
     setFilterAssignee(undefined);
-    setSortDueDate(null);
-    setSortUpdatedAt(null);
+    setSortField(null);
+    setSortOrder(null);
   };
 
 
-  const hasActiveFilters = filterType || filterDept || filterAssignee || sortDueDate || sortUpdatedAt;
+  const hasActiveFilters = filterType || filterStatus || filterDept || filterAssignee || sortField;
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     {
-      title: '标题', dataIndex: 'title', key: 'title', width: 250, ellipsis: true,
+      title: renderSortTitle('标题', 'title'), dataIndex: 'title', key: 'title', width: 250, ellipsis: true,
       render: (text: string) => <Tooltip title={text}><span>{text}</span></Tooltip>,
     },
     {
-      title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80,
+      title: renderSortTitle('类型', 'item_type'), dataIndex: 'item_type', key: 'item_type', width: 80,
       render: (type: string) => <Tag color={TYPE_COLORS[type] || 'blue'}>{TYPE_LABELS[type] || type}</Tag>,
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 100,
-      render: (status: string) => <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status]}</Tag>,
+      title: renderSortTitle('状态', 'status'), dataIndex: 'status', key: 'status', width: 100,
+      render: (_: string, record: WorkItem) => {
+        const effStatus = getEffectiveStatus(record);
+        return <Tag color={STATUS_COLORS[effStatus]}>{STATUS_LABELS[effStatus]}</Tag>;
+      },
     },
     {
-      title: '部门', key: 'department_id', width: 120,
+      title: renderSortTitle('部门', 'department'), key: 'department_id', width: 120,
       render: (_: unknown, record: WorkItem) => record.department?.name || '-',
     },
     {
-      title: '负责人', key: 'assignee', width: 120,
+      title: renderSortTitle('负责人', 'assignee'), key: 'assignee', width: 120,
       render: (_: unknown, record: WorkItem) => getAssigneeName(record),
     },
     {
-      title: '截止日期', dataIndex: 'due_date', key: 'due_date', width: 120,
+      title: renderSortTitle('截止日期', 'due_date'), dataIndex: 'due_date', key: 'due_date', width: 120,
+      render: (v: string) => v ? formatUTCDate(v) : '-',
+    },
+    {
+      title: renderSortTitle('更新时间', 'updated_at'), dataIndex: 'updated_at', key: 'updated_at', width: 120,
       render: (v: string) => v ? formatUTCDate(v) : '-',
     },
     {
@@ -409,6 +481,16 @@ const WorkItemManagementPage: React.FC = () => {
           <Col>
             <Select
               allowClear
+              placeholder="状态"
+              value={filterStatus}
+              onChange={setFilterStatus}
+              style={{ width: 120 }}
+              options={statusFilterOptions}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
               placeholder="部门"
               value={filterDept}
               onChange={setFilterDept}
@@ -428,26 +510,6 @@ const WorkItemManagementPage: React.FC = () => {
               options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
             />
           </Col>
-          <Col>
-            <Button
-              size="small"
-              type={sortDueDate ? 'primary' : 'default'}
-              icon={sortDueDate === 'desc' ? <SortDescendingOutlined /> : <SortAscendingOutlined />}
-              onClick={toggleSortDueDate}
-            >
-              截止日期{sortDueDate === 'asc' ? '↑' : sortDueDate === 'desc' ? '↓' : ''}
-            </Button>
-          </Col>
-          <Col>
-            <Button
-              size="small"
-              type={sortUpdatedAt ? 'primary' : 'default'}
-              icon={sortUpdatedAt === 'desc' ? <SortDescendingOutlined /> : <SortAscendingOutlined />}
-              onClick={toggleSortUpdatedAt}
-            >
-              更新时间{sortUpdatedAt === 'asc' ? '↑' : sortUpdatedAt === 'desc' ? '↓' : ''}
-            </Button>
-          </Col>
           {hasActiveFilters && (
             <Col>
               <Button size="small" type="link" onClick={clearFilters}>清除筛选</Button>
@@ -459,7 +521,7 @@ const WorkItemManagementPage: React.FC = () => {
         </Row>
       </Card>
 
-      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1100 }} />
+      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1300 }} />
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}
@@ -506,6 +568,11 @@ const WorkItemManagementPage: React.FC = () => {
         confirmLoading={submitting}
       >
         <Form layout="vertical">
+          <Form.Item label="当前状态">
+            <Tag color={STATUS_COLORS[getEffectiveStatus(statusModal.item || { status: 'pending' } as WorkItem)]}>
+              {STATUS_LABELS[getEffectiveStatus(statusModal.item || { status: 'pending' } as WorkItem)]}
+            </Tag>
+          </Form.Item>
           <Form.Item label="新状态">
             <Select value={newStatus} onChange={setNewStatus} options={statusOptions} />
           </Form.Item>
