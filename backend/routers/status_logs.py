@@ -10,6 +10,8 @@ from database import get_db
 from models import StatusChangeLog
 from schemas import StatusChangeLogOut
 from auth import require_role
+from models import RoleLevel
+from models import RoleLevel
 
 router = APIRouter(prefix="/status-change-logs", tags=["状态变更日志"])
 
@@ -18,7 +20,7 @@ router = APIRouter(prefix="/status-change-logs", tags=["状态变更日志"])
 async def list_logs(
     work_item_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(2)),
+    _user=Depends(require_role(RoleLevel.MANAGER)),
 ):
     query = select(StatusChangeLog).options(
         selectinload(StatusChangeLog.operator),

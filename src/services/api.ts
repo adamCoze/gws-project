@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -76,6 +76,20 @@ export const kanbanApi = {
     api.get('/kanban', { params: { department_id: departmentId } }),
 };
 
+// Districts
+export const districtApi = {
+  list: async (): Promise<District[]> => {
+    const res = await api.get('/districts');
+    return res as unknown as District[];
+  },
+  create: (data: Partial<District>) =>
+    api.post<District>('/districts', data),
+  update: (id: number, data: Partial<District>) =>
+    api.put<District>(`/districts/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/districts/${id}`),
+};
+
 // Departments
 export const departmentApi = {
   list: async (): Promise<Department[]> => {
@@ -96,9 +110,9 @@ export const userApi = {
     const res = await api.get('/users');
     return res as unknown as User[];
   },
-  listBrief: async (): Promise<Array<{id: number; real_name: string; username: string; email_prefix: string}>> => {
+  listBrief: async (): Promise<Array<{id: number; real_name: string; username: string; email_prefix: string; role_level: number}>> => {
     const res = await api.get('/users/brief');
-    return res as unknown as Array<{id: number; real_name: string; username: string; email_prefix: string}>;
+    return res as unknown as Array<{id: number; real_name: string; username: string; email_prefix: string; role_level: number}>;
   },
   create: (data: Partial<User> & { password?: string }) =>
     api.post<User>('/users', data),

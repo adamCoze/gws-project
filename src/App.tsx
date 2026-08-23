@@ -6,12 +6,15 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import KanbanPage from './pages/KanbanPage';
 import UserManagementPage from './pages/admin/UserManagementPage';
+import DepartmentManagementPage from './pages/admin/DepartmentManagementPage';
+import DistrictManagementPage from './pages/admin/DistrictManagementPage';
 import EmailConfigPage from './pages/admin/EmailConfigPage';
 import EmailLogPage from './pages/admin/EmailLogPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
 import { ROLE_LEVELS } from './types';
 import type { RoleType } from './types';
+import { ROLE_LEVEL } from './types';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; minLevel?: number }> = ({ children, minLevel = 1 }) => {
   const { isAuthenticated, user, isLoading } = useAuth();
@@ -25,7 +28,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; minLevel?: number }>
   }
 
   if (user && minLevel > 1) {
-    const userLevel = ROLE_LEVELS[user.role as RoleType] || 0;
+    // 优先使用 role_level 字段
+    const userLevel = user.role_level || ROLE_LEVELS[user.role as RoleType] || 0;
     if (userLevel < minLevel) {
       return <Navigate to="/dashboard" replace />;
     }
@@ -52,15 +56,31 @@ const AppRoutes: React.FC = () => {
         <Route
           path="admin/users"
           element={
-            <ProtectedRoute minLevel={5}>
+            <ProtectedRoute minLevel={ROLE_LEVEL.ADMIN}>
               <UserManagementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/departments"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.ADMIN}>
+              <DepartmentManagementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/districts"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.ADMIN}>
+              <DistrictManagementPage />
             </ProtectedRoute>
           }
         />
         <Route
           path="admin/email"
           element={
-            <ProtectedRoute minLevel={5}>
+            <ProtectedRoute minLevel={ROLE_LEVEL.ADMIN}>
               <EmailConfigPage />
             </ProtectedRoute>
           }
@@ -68,7 +88,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="admin/email-logs"
           element={
-            <ProtectedRoute minLevel={2}>
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <EmailLogPage />
             </ProtectedRoute>
           }
@@ -76,7 +96,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="admin/work-items"
           element={
-            <ProtectedRoute minLevel={2}>
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <WorkItemManagementPage />
             </ProtectedRoute>
           }
@@ -84,7 +104,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="admin/status-logs"
           element={
-            <ProtectedRoute minLevel={2}>
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <StatusLogPage />
             </ProtectedRoute>
           }

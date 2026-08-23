@@ -13,10 +13,12 @@ import {
   MenuUnfoldOutlined,
   UnorderedListOutlined,
   KeyOutlined,
+  EnvironmentOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from './AuthProvider';
-import { ROLE_LABELS, ROLE_LEVELS } from '../types';
+import { ROLE_LABELS, ROLE_LEVELS, ROLE_LEVEL } from '../types';
 import type { RoleType } from '../types';
 import { authApi } from '../services/api';
 
@@ -32,23 +34,26 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
 
-  const userLevel = user ? ROLE_LEVELS[user.role as RoleType] || 0 : 0;
+  // 优先使用 role_level 字段
+  const userLevel = user ? (user.role_level || ROLE_LEVELS[user.role as RoleType] || 0) : 0;
 
   const menuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: '我的工作' },
     { key: '/kanban', icon: <ProjectOutlined />, label: '工作看板' },
-    ...(userLevel >= 2
+    ...(userLevel >= ROLE_LEVEL.MANAGER
       ? [
           {
             key: 'admin',
             label: '后台管理',
             icon: <UserOutlined />,
             children: [
-              ...(userLevel >= 2 ? [{ key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' }] : []),
-              ...(userLevel >= 2 ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
-              ...(userLevel >= 2 ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
-              ...(userLevel >= 5 ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
-              ...(userLevel >= 5 ? [{ key: '/admin/email', icon: <MailOutlined />, label: '邮箱配置' }] : []),
+              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' }] : []),
+              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
+              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
+              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/districts', icon: <EnvironmentOutlined />, label: '区域管理' }] : []),
+              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/departments', icon: <ApartmentOutlined />, label: '部门管理' }] : []),
+              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
+              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/email', icon: <MailOutlined />, label: '邮箱配置' }] : []),
             ],
           },
         ]

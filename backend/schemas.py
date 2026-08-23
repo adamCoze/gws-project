@@ -7,6 +7,50 @@ from pydantic import BaseModel, EmailStr, model_validator
 from models import RoleType, WorkItemStatus, WorkItemType, EmailProcessResult
 
 
+# ========== 通用：角色等级选项 ==========
+
+ROLE_LEVEL_OPTIONS = [
+    (1, "实习生"),
+    (2, "专员"),
+    (3, "经理"),
+    (4, "区总"),
+    (5, "部门总监"),
+    (6, "监察主任"),
+    (7, "集团总监"),
+    (8, "总裁"),
+    (9, "管理员"),
+]
+
+ROLE_LEVEL_LABELS = {level: label for level, label in ROLE_LEVEL_OPTIONS}
+
+
+# ========== District ==========
+
+class DistrictBase(BaseModel):
+    name: str
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class DistrictCreate(DistrictBase):
+    pass
+
+
+class DistrictUpdate(BaseModel):
+    name: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class DistrictOut(DistrictBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ========== User ==========
 
 class UserBase(BaseModel):
@@ -15,7 +59,9 @@ class UserBase(BaseModel):
     email_prefix: Optional[str] = None
     real_name: Optional[str] = None
     role: str = "staff"
+    role_level: int = 2
     department_id: Optional[int] = None
+    district_id: Optional[int] = None
     region: Optional[str] = None
 
 
@@ -30,7 +76,9 @@ class UserUpdate(BaseModel):
     email_prefix: Optional[str] = None
     real_name: Optional[str] = None
     role: Optional[str] = None
+    role_level: Optional[int] = None
     department_id: Optional[int] = None
+    district_id: Optional[int] = None
     region: Optional[str] = None
     password: Optional[str] = None
     is_active: Optional[bool] = None
@@ -40,6 +88,19 @@ class UserOut(UserBase):
     id: int
     is_active: bool
     created_at: datetime
+    department: Optional["DepartmentOut"] = None
+    district: Optional[DistrictOut] = None
+
+    class Config:
+        from_attributes = True
+
+
+class UserBriefOut(BaseModel):
+    id: int
+    real_name: Optional[str] = None
+    username: str
+    email_prefix: Optional[str] = None
+    role_level: int = 2
 
     class Config:
         from_attributes = True
@@ -50,15 +111,23 @@ class UserOut(UserBase):
 class DepartmentBase(BaseModel):
     name: str
     code: str
+    district_id: Optional[int] = None
 
 
 class DepartmentCreate(DepartmentBase):
     pass
 
 
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    district_id: Optional[int] = None
+
+
 class DepartmentOut(DepartmentBase):
     id: int
     created_at: datetime
+    district: Optional[DistrictOut] = None
 
     class Config:
         from_attributes = True
@@ -138,6 +207,9 @@ class WorkItemOut(WorkItemBase):
     sender_email: Optional[str] = None
     email_date: Optional[datetime] = None
     latest_progress: Optional[str] = None
+    sponsor_id: Optional[int] = None
+    completed_by: Optional[int] = None
+    completed_at: Optional[datetime] = None
     assignee_names: Optional[str] = None
     created_at: datetime
     updated_at: datetime

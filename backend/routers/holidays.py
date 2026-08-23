@@ -9,6 +9,8 @@ from database import get_db
 from models import Holiday
 from schemas import HolidayOut, HolidayCreate
 from auth import require_role
+from models import RoleLevel
+from models import RoleLevel
 
 router = APIRouter(prefix="/holidays", tags=["节假日"])
 
@@ -30,7 +32,7 @@ async def list_holidays(
 async def create_holiday(
     data: HolidayCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(4)),
+    _user=Depends(require_role(RoleLevel.REGULATOR)),
 ):
     holiday = Holiday(**data.model_dump())
     db.add(holiday)
@@ -44,7 +46,7 @@ async def update_holiday(
     holiday_id: int,
     data: HolidayCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(4)),
+    _user=Depends(require_role(RoleLevel.REGULATOR)),
 ):
     result = await db.execute(select(Holiday).where(Holiday.id == holiday_id))
     holiday = result.scalar_one_or_none()
@@ -62,7 +64,7 @@ async def update_holiday(
 async def delete_holiday(
     holiday_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(4)),
+    _user=Depends(require_role(RoleLevel.REGULATOR)),
 ):
     result = await db.execute(select(Holiday).where(Holiday.id == holiday_id))
     holiday = result.scalar_one_or_none()

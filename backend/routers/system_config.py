@@ -9,6 +9,8 @@ from database import get_db
 from models import SystemConfig
 from schemas import SystemConfigOut, SystemConfigCreate, SystemConfigUpdate
 from auth import require_role
+from models import RoleLevel
+from models import RoleLevel
 
 router = APIRouter(prefix="/system-config", tags=["系统配置"])
 
@@ -16,7 +18,7 @@ router = APIRouter(prefix="/system-config", tags=["系统配置"])
 @router.get("", response_model=List[SystemConfigOut])
 async def list_configs(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(0)),  # 仅管理员可访问
+    _user=Depends(require_role(RoleLevel.ADMIN)),  # 仅管理员可访问
 ):
     """获取所有系统配置"""
     result = await db.execute(select(SystemConfig).order_by(SystemConfig.config_key))
@@ -27,7 +29,7 @@ async def list_configs(
 async def get_config(
     config_key: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(0)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     """获取单个配置"""
     result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == config_key))
@@ -41,7 +43,7 @@ async def get_config(
 async def create_config(
     data: SystemConfigCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(0)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     """创建配置"""
     # 检查是否已存在
@@ -61,7 +63,7 @@ async def update_config(
     config_key: str,
     data: SystemConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(0)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     """更新配置"""
     result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == config_key))
@@ -81,7 +83,7 @@ async def update_config(
 async def delete_config(
     config_key: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(0)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     """删除配置"""
     result = await db.execute(select(SystemConfig).where(SystemConfig.config_key == config_key))

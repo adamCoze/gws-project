@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
-import { userApi, departmentApi } from '../../services/api';
-import type { User, Department } from '../../types';
-import { ROLE_LABELS } from '../../types';
+import { userApi, departmentApi, districtApi } from '../../services/api';
+import type { User, Department, District } from '../../types';
+import { ROLE_LABELS, ROLE_LEVEL_LABELS, ROLE_LEVEL_OPTIONS } from '../../types';
 
 const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [districts, setDistricts] = useState<District[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -17,12 +18,14 @@ const UserManagementPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [usersData, deptsData] = await Promise.all([
+      const [usersData, deptsData, districtsData] = await Promise.all([
         userApi.list(),
         departmentApi.list(),
+        districtApi.list(),
       ]);
       setUsers(usersData);
       setDepartments(deptsData);
+      setDistricts(districtsData);
     } catch {
       message.error('获取数据失败');
     } finally {
@@ -90,6 +93,12 @@ const UserManagementPage: React.FC = () => {
     return dept?.name || '-';
   };
 
+  const getDistrictName = (districtId?: number) => {
+    if (!districtId) return '-';
+    const district = districts.find((d) => d.id === districtId);
+    return district?.name || '-';
+  };
+
   const columns = [
     {
       title: '用户名',
@@ -108,20 +117,30 @@ const UserManagementPage: React.FC = () => {
       key: 'email',
     },
     {
-      title: '邮箱前缀',
-      dataIndex: 'email_prefix',
-      key: 'email_prefix',
-      render: (v: string) => v || '-',
+      title: '角色等级',
+      dataIndex: 'role_level',
+      key: 'role_level',
+      render: (level: number) => (
+        <Tag color={level >= 8 ? 'red' : level >= 6 ? 'orange' : 'blue'}>
+          {ROLE_LEVEL_LABELS[level] || level}
+        </Tag>
+      ),
     },
     {
-      title: '角色',
+      title: '角色(旧)',
       dataIndex: 'role',
       key: 'role',
       render: (role: string) => (
-        <Tag color={role === 'admin' ? 'red' : 'blue'}>
+        <Tag color="default">
           {ROLE_LABELS[role] || role}
         </Tag>
       ),
+    },
+    {
+      title: '区域',
+      dataIndex: 'district_id',
+      key: 'district_id',
+      render: (districtId: number) => getDistrictName(districtId),
     },
     {
       title: '部门',
@@ -180,6 +199,7 @@ const UserManagementPage: React.FC = () => {
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
         confirmLoading={submitting}
+        width={600}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
@@ -201,7 +221,12 @@ const UserManagementPage: React.FC = () => {
           >
             <Input.Password />
           </Form.Item>
-          <Form.Item name="role" label="角色" initialValue="staff">
+          <Form.Item name="role_level" label="角色等级" initialValue={2}>
+            <Select
+              options={ROLE_LEVEL_OPTIONS}
+            />
+          </Form.Item>
+          <Form.Item name="role" label="角色标识（兼容旧字段）" initialValue="staff">
             <Select
               options={[
                 { value: 'staff', label: '专员' },
@@ -211,6 +236,12 @@ const UserManagementPage: React.FC = () => {
                 { value: 'president', label: '总裁' },
                 { value: 'admin', label: '管理员' },
               ]}
+            />
+          </Form.Item>
+          <Form.Item name="district_id" label="所属区域">
+            <Select
+              allowClear
+              options={districts.map((d) => ({ value: d.id, label: d.name }))}
             />
           </Form.Item>
           <Form.Item name="department_id" label="部门">

@@ -9,6 +9,8 @@ from database import get_db
 from models import EmailLog
 from schemas import EmailLogOut
 from auth import require_role
+from models import RoleLevel
+from models import RoleLevel
 
 router = APIRouter(prefix="/email-logs", tags=["邮件日志"])
 
@@ -19,7 +21,7 @@ async def list_email_logs(
     limit: int = Query(default=50, le=10000),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(2)),
+    _user=Depends(require_role(RoleLevel.MANAGER)),
 ):
     """获取邮件处理日志列表"""
     query = select(EmailLog)
@@ -34,7 +36,7 @@ async def list_email_logs(
 async def get_email_log(
     log_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(2)),
+    _user=Depends(require_role(RoleLevel.MANAGER)),
 ):
     """获取单个邮件日志详情"""
     result = await db.execute(select(EmailLog).where(EmailLog.id == log_id))

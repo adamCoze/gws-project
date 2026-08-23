@@ -11,19 +11,10 @@ from sqlalchemy import select
 
 from config import settings
 from database import get_db
-from models import User, RoleType
+from models import User, RoleType, RoleLevel
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
-
-ROLE_LEVELS = {
-    RoleType.staff: 1,              # 专员
-    RoleType.manager: 2,            # 经理
-    RoleType.district_manager: 3,   # 区总
-    RoleType.regulator: 4,          # 规管（可看机密）
-    RoleType.president: 5,          # 总裁
-    RoleType.admin: 6,              # 管理员
-}
 
 
 def get_password_hash(password: str) -> str:
@@ -70,10 +61,27 @@ async def get_current_user(
 
 
 def require_role(min_level: int):
-    """角色权限装饰器"""
+    """角色权限装饰器（基于 role_level 整数）"""
     async def checker(user: User = Depends(get_current_user)):
-        user_level = ROLE_LEVELS.get(user.role, 0)
+        # 优先使用 role_level 字段，若为 0 或 None 则回退到 role 字符串映射
+        if user.role_level and user.role_level > 0:
+            user_level = user.role_level
+        else:
+            from models import ROLE_TO_LEVEL_DEFAULT
+            user_level = ROLE_TO_LEVEL_DEFAULT.get(user.role, 1)
         if user_level < min_level:
             raise HTTPException(status_code=403, detail="权限不足")
         return user
     return checker
+
+
+# 向后兼容：旧代码仍通过 role 字符串查等级
+# 新代码应直接使用 user.role_level 字段
+ROLE_LEVELS = {
+    "staff": 2,
+    "manager": 3,
+    "district_manager": 4,
+    "regulator": 6,
+    "president": 8,
+    "admin": 9,
+}

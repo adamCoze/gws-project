@@ -9,6 +9,8 @@ from database import get_db
 from models import EmailConfig
 from schemas import EmailConfigOut, EmailConfigCreate, EmailConfigUpdate
 from auth import require_role
+from models import RoleLevel
+from models import RoleLevel
 
 router = APIRouter(prefix="/email-configs", tags=["邮箱配置"])
 
@@ -16,7 +18,7 @@ router = APIRouter(prefix="/email-configs", tags=["邮箱配置"])
 @router.get("", response_model=List[EmailConfigOut])
 async def list_configs(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     result = await db.execute(select(EmailConfig).order_by(EmailConfig.id))
     return result.scalars().all()
@@ -26,7 +28,7 @@ async def list_configs(
 async def create_config(
     data: EmailConfigCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     config = EmailConfig(**data.model_dump())
     db.add(config)
@@ -40,7 +42,7 @@ async def update_config(
     config_id: int,
     data: EmailConfigUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     result = await db.execute(select(EmailConfig).where(EmailConfig.id == config_id))
     config = result.scalar_one_or_none()
@@ -57,7 +59,7 @@ async def update_config(
 async def delete_config(
     config_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     result = await db.execute(select(EmailConfig).where(EmailConfig.id == config_id))
     config = result.scalar_one_or_none()
@@ -71,7 +73,7 @@ async def delete_config(
 async def test_config(
     config_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     """测试邮箱连接"""
     result = await db.execute(select(EmailConfig).where(EmailConfig.id == config_id))

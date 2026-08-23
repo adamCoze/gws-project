@@ -4,10 +4,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import Department
-from schemas import DepartmentOut, DepartmentCreate
+from models import Department, RoleLevel
+from schemas import DepartmentOut, DepartmentCreate, DepartmentUpdate
 from auth import require_role
 
 router = APIRouter(prefix="/departments", tags=["部门"])
@@ -15,7 +16,11 @@ router = APIRouter(prefix="/departments", tags=["部门"])
 
 @router.get("", response_model=List[DepartmentOut])
 async def list_departments(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Department).order_by(Department.id))
+    result = await db.execute(
+        select(Department)
+        .options(selectinload(Department.district))
+        .order_by(Department.id)
+    )
     return result.scalars().all()
 
 
@@ -23,30 +28,35 @@ async def list_departments(db: AsyncSession = Depends(get_db)):
 async def create_department(
     data: DepartmentCreate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     dept = Department(**data.model_dump())
     db.add(dept)
     await db.flush()
-    await db.refresh(dept)
+    await db.refresh(dept, ["district"])
     return dept
 
 
 @router.put("/{dept_id}", response_model=DepartmentOut)
 async def update_department(
     dept_id: int,
-    data: DepartmentCreate,
+    data: DepartmentUpdate,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
-    result = await db.execute(select(Department).where(Department.id == dept_id))
+    result = await db.execute(
+        select(Department)
+        .where(Department.id == dept_id)
+        .options(selectinload(Department.district))
+    )
     dept = result.scalar_one_or_none()
     if not dept:
         raise HTTPException(status_code=404, detail="部门不存在")
-    dept.name = data.name
-    dept.code = data.code
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(dept, field, value)
     await db.flush()
-    await db.refresh(dept)
+    await db.refresh(dept, ["district"])
     return dept
 
 
@@ -54,7 +64,7 @@ async def update_department(
 async def delete_department(
     dept_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(require_role(5)),
+    _user=Depends(require_role(RoleLevel.ADMIN)),
 ):
     result = await db.execute(select(Department).where(Department.id == dept_id))
     dept = result.scalar_one_or_none()
