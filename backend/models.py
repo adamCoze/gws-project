@@ -50,6 +50,7 @@ ROLE_TO_LEVEL_DEFAULT = {
     "district_manager": RoleLevel.DISTRICT_MANAGER,
     "manager": RoleLevel.MANAGER,
     "staff": RoleLevel.STAFF,
+    "consultant": RoleLevel.CONSULTANT,
 }
 
 
@@ -120,6 +121,7 @@ class User(Base):
     real_name = Column(String(50), nullable=True)
     role = Column(String(16), default="staff", nullable=False)
     role_level = Column(Integer, default=RoleLevel.STAFF, nullable=False)
+    secondary_roles = Column(JSON, default=list, nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
     region = Column(String(20), nullable=True)
@@ -291,6 +293,7 @@ class Assessment(Base):
     year = Column(Integer, nullable=False)
     month = Column(Integer, nullable=False)  # 0=季度/年度考核, 1-12=月度
     status = Column(String(20), default=AssessmentStatus.draft.value, nullable=False)
+    initiator_role_level = Column(Integer, nullable=True)
     description = Column(Text, nullable=True)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -313,6 +316,7 @@ class AssessmentScore(Base):
     assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False)
     work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False)
     scorer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    scorer_role_level = Column(Integer, nullable=True)
     level = Column(Integer, nullable=False)  # 评分层级 1-9
     score = Column(Integer, nullable=True)   # 总分档位：1/5/10/20/30
     comment = Column(Text, nullable=True)
