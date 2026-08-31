@@ -31,7 +31,7 @@ class RoleType(str, Enum):
 
 # 9级角色等级定义
 class RoleLevel:
-    INTERN = 1
+    CONSULTANT = 1
     STAFF = 2
     MANAGER = 3
     DISTRICT_MANAGER = 4

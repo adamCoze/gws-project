@@ -10,10 +10,10 @@ from models import RoleType, WorkItemStatus, WorkItemType, EmailProcessResult
 # ========== 通用：角色等级选项 ==========
 
 ROLE_LEVEL_OPTIONS = [
-    (1, "实习生"),
+    (1, "顾问"),
     (2, "专员"),
     (3, "经理"),
-    (4, "区总"),
+    (4, "区域总监"),
     (5, "部门总监"),
     (6, "监察主任"),
     (7, "集团总监"),
@@ -60,6 +60,7 @@ class UserBase(BaseModel):
     real_name: Optional[str] = None
     role: str = "staff"
     role_level: int = 2
+    secondary_roles: Optional[List[int]] = None
     department_id: Optional[int] = None
     district_id: Optional[int] = None
     region: Optional[str] = None
@@ -77,6 +78,7 @@ class UserUpdate(BaseModel):
     real_name: Optional[str] = None
     role: Optional[str] = None
     role_level: Optional[int] = None
+    secondary_roles: Optional[List[int]] = None
     department_id: Optional[int] = None
     district_id: Optional[int] = None
     region: Optional[str] = None
@@ -101,6 +103,7 @@ class UserBriefOut(BaseModel):
     username: str
     email_prefix: Optional[str] = None
     role_level: int = 2
+    secondary_roles: List[int]
 
     class Config:
         from_attributes = True

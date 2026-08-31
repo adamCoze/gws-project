@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff';
+export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff' | 'consultant';
 export type RoleType = UserRole;
 export type WorkItemStatus = 'pending' | 'completed' | 'overdue' | 'cancelled';
 export type WorkItemType = 'task' | 'cosign';
@@ -6,7 +6,7 @@ export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
 // 9级角色等级
 export const ROLE_LEVEL = {
-  INTERN: 1,
+  CONSULTANT: 1,
   STAFF: 2,
   MANAGER: 3,
   DISTRICT_MANAGER: 4,
@@ -21,10 +21,10 @@ export type RoleLevel = typeof ROLE_LEVEL[keyof typeof ROLE_LEVEL];
 
 // 角色等级标签
 export const ROLE_LEVEL_LABELS: Record<number, string> = {
-  1: '实习生',
+  1: '顾问',
   2: '专员',
   3: '经理',
-  4: '区总',
+  4: '区域总监',
   5: '部门总监',
   6: '监察主任',
   7: '集团总监',
@@ -34,10 +34,10 @@ export const ROLE_LEVEL_LABELS: Record<number, string> = {
 
 // 角色等级选项（用于下拉选择）
 export const ROLE_LEVEL_OPTIONS = [
-  { value: 1, label: '实习生' },
+  { value: 1, label: '顾问' },
   { value: 2, label: '专员' },
   { value: 3, label: '经理' },
-  { value: 4, label: '区总' },
+  { value: 4, label: '区域总监' },
   { value: 5, label: '部门总监' },
   { value: 6, label: '监察主任' },
   { value: 7, label: '集团总监' },
@@ -48,16 +48,18 @@ export const ROLE_LEVEL_OPTIONS = [
 export const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
   president: '总裁',
-  regulator: '规管',
-  district_manager: '区总',
+  regulator: '监察主任',
+  district_manager: '区域总监',
   manager: '经理',
   staff: '专员',
-  intern: '实习生',
+  consultant: '顾问',
+  intern: '顾问',
 };
 
 // 向后兼容：旧代码通过 role 字符串获取等级
 // 新代码应直接使用 user.role_level 字段
 export const ROLE_LEVELS: Record<string, number> = {
+  consultant: 1,
   intern: 1,
   staff: 2,
   manager: 3,
@@ -121,6 +123,7 @@ export interface User {
   real_name?: string;
   role: UserRole;
   role_level: RoleLevel;
+  secondary_roles: number[];
   department_id?: number;
   district_id?: number;
   region?: string;

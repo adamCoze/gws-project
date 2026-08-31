@@ -136,6 +136,22 @@ async def _run_migrations():
                     logger.info(f"迁移 v5：已为 {migrated_count} 个用户填充 role_level")
                 new_version = 5
 
+            # ---- v6: 主副角色体系 + 考核角色预留字段 ----
+            if current_version < 6:
+                # users 表新增 secondary_roles 字段
+                if not await _column_exists("users", "secondary_roles"):
+                    await session.execute(text("ALTER TABLE users ADD COLUMN secondary_roles TEXT NOT NULL DEFAULT '[]'"))
+                    logger.info("迁移 v6：users 表新增 secondary_roles 字段")
+                # assessments 表新增 initiator_role_level 字段
+                if not await _column_exists("assessments", "initiator_role_level"):
+                    await session.execute(text("ALTER TABLE assessments ADD COLUMN initiator_role_level INTEGER"))
+                    logger.info("迁移 v6：assessments 表新增 initiator_role_level 字段")
+                # assessment_scores 表新增 scorer_role_level 字段
+                if not await _column_exists("assessment_scores", "scorer_role_level"):
+                    await session.execute(text("ALTER TABLE assessment_scores ADD COLUMN scorer_role_level INTEGER"))
+                    logger.info("迁移 v6：assessment_scores 表新增 scorer_role_level 字段")
+                new_version = 6
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

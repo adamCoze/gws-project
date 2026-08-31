@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { userApi, departmentApi, districtApi } from '../../services/api';
 import type { User, Department, District } from '../../types';
-import { ROLE_LABELS, ROLE_LEVEL_LABELS, ROLE_LEVEL_OPTIONS } from '../../types';
+import { ROLE_LABELS, ROLE_LEVEL_LABELS, ROLE_LEVEL_OPTIONS, ROLE_LEVEL } from '../../types';
 
 const UserManagementPage: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -14,6 +14,9 @@ const UserManagementPage: React.FC = () => {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
+
+  // 监听主角色变化
+  const selectedRoleLevel = Form.useWatch('role_level', form);
 
   const fetchData = async () => {
     setLoading(true);
@@ -37,16 +40,57 @@ const UserManagementPage: React.FC = () => {
     fetchData();
   }, []);
 
+  // 根据主角色等级判断字段显示与必填
+  const roleFieldConfig = useMemo(() => {
+    const level = selectedRoleLevel ?? 2;
+    if (level >= ROLE_LEVEL.REGULATOR) {
+      // admin/president/group_director/regulator：隐藏部门、区域
+      return { showDept: false, showDistrict: false, deptRequired: false, districtRequired: false };
+    }
+    if (level === ROLE_LEVEL.DEPT_DIRECTOR) {
+      // 部门总监：显示部门（必填），隐藏区域
+      return { showDept: true, showDistrict: false, deptRequired: true, districtRequired: false };
+    }
+    if (level === ROLE_LEVEL.DISTRICT_MANAGER) {
+      // 区域总监：显示区域（必填），隐藏部门
+      return { showDept: false, showDistrict: true, deptRequired: false, districtRequired: true };
+    }
+    // manager/staff/consultant：显示部门（必填），区域随部门带出
+    return { showDept: true, showDistrict: true, deptRequired: true, districtRequired: false };
+  }, [selectedRoleLevel]);
+
+  // 副角色选项：排除主角色
+  const secondaryRoleOptions = useMemo(() => {
+    const mainLevel = selectedRoleLevel ?? 2;
+    return ROLE_LEVEL_OPTIONS.filter((opt) => opt.value !== mainLevel);
+  }, [selectedRoleLevel]);
+
+  // 部门变化时自动带出区域
+  const handleDeptChange = (deptId: number | undefined) => {
+    if (!deptId) return;
+    const dept = departments.find((d) => d.id === deptId);
+    if (dept?.district_id) {
+      form.setFieldsValue({ district_id: dept.district_id });
+    }
+  };
+
   const openModal = (user?: User) => {
     if (user) {
       setEditingUser(user);
       form.setFieldsValue({
         ...user,
+        secondary_roles: user.secondary_roles || [],
         password: '',
       });
     } else {
       setEditingUser(null);
       form.resetFields();
+      form.setFieldsValue({
+        role_level: 2,
+        role: 'staff',
+        secondary_roles: [],
+        is_active: true,
+      });
     }
     setModalVisible(true);
   };
@@ -117,13 +161,24 @@ const UserManagementPage: React.FC = () => {
       key: 'email',
     },
     {
-      title: '角色等级',
+      title: '角色',
       dataIndex: 'role_level',
       key: 'role_level',
-      render: (level: number) => (
-        <Tag color={level >= 8 ? 'red' : level >= 6 ? 'orange' : 'blue'}>
-          {ROLE_LEVEL_LABELS[level] || level}
-        </Tag>
+      render: (level: number, record: User) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={level >= 8 ? 'red' : level >= 6 ? 'orange' : 'blue'}>
+            {ROLE_LEVEL_LABELS[level] || level}
+          </Tag>
+          {record.secondary_roles && record.secondary_roles.length > 0 && (
+            <Space wrap size={4}>
+              {record.secondary_roles.map((sl) => (
+                <Tag key={sl} color="default" style={{ fontSize: 12 }}>
+                  副: {ROLE_LEVEL_LABELS[sl]}
+                </Tag>
+              ))}
+            </Space>
+          )}
+        </Space>
       ),
     },
     {
@@ -200,6 +255,7 @@ const UserManagementPage: React.FC = () => {
         onCancel={() => setModalVisible(false)}
         confirmLoading={submitting}
         width={600}
+        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
@@ -221,35 +277,55 @@ const UserManagementPage: React.FC = () => {
           >
             <Input.Password />
           </Form.Item>
-          <Form.Item name="role_level" label="角色等级" initialValue={2}>
+          <Form.Item name="role_level" label="主角色等级" initialValue={2} rules={[{ required: true }]}>
+            <Select options={ROLE_LEVEL_OPTIONS} />
+          </Form.Item>
+          <Form.Item name="secondary_roles" label="副角色（可多选）">
             <Select
-              options={ROLE_LEVEL_OPTIONS}
+              mode="multiple"
+              placeholder="选择副角色（主角色不会出现在此处）"
+              options={secondaryRoleOptions}
+              allowClear
             />
           </Form.Item>
           <Form.Item name="role" label="角色标识（兼容旧字段）" initialValue="staff">
             <Select
               options={[
+                { value: 'consultant', label: '顾问' },
                 { value: 'staff', label: '专员' },
                 { value: 'manager', label: '经理' },
-                { value: 'district_manager', label: '区总' },
-                { value: 'regulator', label: '规管' },
+                { value: 'district_manager', label: '区域总监' },
+                { value: 'regulator', label: '监察主任' },
                 { value: 'president', label: '总裁' },
                 { value: 'admin', label: '管理员' },
               ]}
             />
           </Form.Item>
-          <Form.Item name="district_id" label="所属区域">
-            <Select
-              allowClear
-              options={districts.map((d) => ({ value: d.id, label: d.name }))}
-            />
-          </Form.Item>
-          <Form.Item name="department_id" label="部门">
-            <Select
-              allowClear
-              options={departments.map((d) => ({ value: d.id, label: d.name }))}
-            />
-          </Form.Item>
+          {roleFieldConfig.showDistrict && (
+            <Form.Item
+              name="district_id"
+              label="所属区域"
+              rules={roleFieldConfig.districtRequired ? [{ required: true, message: '请选择区域' }] : []}
+            >
+              <Select
+                allowClear
+                options={districts.map((d) => ({ value: d.id, label: d.name }))}
+              />
+            </Form.Item>
+          )}
+          {roleFieldConfig.showDept && (
+            <Form.Item
+              name="department_id"
+              label="部门"
+              rules={roleFieldConfig.deptRequired ? [{ required: true, message: '请选择部门' }] : []}
+            >
+              <Select
+                allowClear
+                options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                onChange={handleDeptChange}
+              />
+            </Form.Item>
+          )}
           {editingUser && (
             <Form.Item name="is_active" label="状态" initialValue={true}>
               <Select
