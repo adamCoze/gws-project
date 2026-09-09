@@ -12,9 +12,11 @@ import EmailConfigPage from './pages/admin/EmailConfigPage';
 import EmailLogPage from './pages/admin/EmailLogPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
-import AssessmentListPage from './pages/admin/AssessmentListPage';
-import AssessmentDetailPage from './pages/admin/AssessmentDetailPage';
-import MyScoresPage from './pages/MyScoresPage';
+import PendingAssessmentPage from './pages/PendingAssessmentPage';
+import AssessmentTodoPage from './pages/AssessmentTodoPage';
+import MyAssessmentsPage from './pages/MyAssessmentsPage';
+import NonAssessmentPage from './pages/NonAssessmentPage';
+import AssessmentDetailPage from './pages/AssessmentDetailPage';
 import { ROLE_LEVELS } from './types';
 import type { RoleType } from './types';
 import { ROLE_LEVEL } from './types';
@@ -56,7 +58,33 @@ const AppRoutes: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="kanban" element={<KanbanPage />} />
-        <Route path="my-scores" element={<MyScoresPage />} />
+        <Route path="my-scores" element={<Navigate to="/assessment/my" replace />} />
+        <Route path="assessment/my" element={<MyAssessmentsPage />} />
+        <Route path="assessment/:id" element={<AssessmentDetailPage />} />
+        <Route
+          path="assessment/todo"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+              <AssessmentTodoPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="assessment/pending"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+              <PendingAssessmentPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="assessment/non-assessment"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+              <NonAssessmentPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="admin/users"
           element={
@@ -110,22 +138,6 @@ const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <StatusLogPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="admin/assessments"
-          element={
-            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
-              <AssessmentListPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="admin/assessments/:id"
-          element={
-            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
-              <AssessmentDetailPage />
             </ProtectedRoute>
           }
         />

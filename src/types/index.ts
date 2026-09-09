@@ -212,95 +212,207 @@ export interface LoginResponse {
   access_token: string;
   user: User;
 }
-// ============ 考核模块 ============
+// ============ 考核模块（需求v0.3完整版） ============
 
-export type AssessmentStatus = 'draft' | 'scoring' | 'reviewing' | 'completed' | 'cancelled';
+// 考核状态机
+export type AssessmentStatus =
+  | 'pending_dept_confirm'       // 待部门总监确认
+  | 'pending_district_score'     // 待区总评分
+  | 'pending_regulator_score'    // 待监察主任评分
+  | 'pending_group_score'        // 待集团总监评分
+  | 'pending_supplement'         // 待补充凭证
+  | 'appeal_period'              // 异议期
+  | 'appealed'                   // 已提异议
+  | 'ai_reviewing'               // AI审查中
+  | 'pending_ruling'             // 待裁定
+  | 'completed'                  // 已完结
+  | 'cancelled';                 // 已终止
 
-export const ASSESSMENT_STATUS_LABELS: Record<AssessmentStatus, string> = {
-  draft: '草稿',
-  scoring: '评分中',
-  reviewing: '复核中',
-  completed: '已完成',
-  cancelled: '已取消',
+export const ASSESSMENT_STATUS_LABELS: Record<string, string> = {
+  pending_dept_confirm: '待部门总监确认',
+  pending_district_score: '待区总评分',
+  pending_regulator_score: '待监察主任评分',
+  pending_group_score: '待集团总监评分',
+  pending_supplement: '待补充凭证',
+  appeal_period: '异议期',
+  appealed: '已提异议',
+  ai_reviewing: 'AI审查中',
+  pending_ruling: '待裁定',
+  completed: '已完结',
+  cancelled: '已终止',
 };
 
-export const ASSESSMENT_STATUS_COLORS: Record<AssessmentStatus, string> = {
-  draft: 'default',
-  scoring: 'processing',
-  reviewing: 'warning',
+export const ASSESSMENT_STATUS_COLORS: Record<string, string> = {
+  pending_dept_confirm: 'gold',
+  pending_district_score: 'processing',
+  pending_regulator_score: 'processing',
+  pending_group_score: 'processing',
+  pending_supplement: 'warning',
+  appeal_period: 'purple',
+  appealed: 'magenta',
+  ai_reviewing: 'geekblue',
+  pending_ruling: 'volcano',
   completed: 'success',
   cancelled: 'default',
 };
 
-export const ASSESSMENT_STATUS_OPTIONS = [
-  { value: 'draft', label: '草稿' },
-  { value: 'scoring', label: '评分中' },
-  { value: 'reviewing', label: '复核中' },
-  { value: 'completed', label: '已完成' },
-  { value: 'cancelled', label: '已取消' },
-];
+// 评分层级
+export type ScoreLevel = 'district' | 'regulator' | 'group';
+export const SCORE_LEVEL_LABELS: Record<string, string> = {
+  district: '区总评分',
+  regulator: '监察主任评分',
+  group: '集团总监评分',
+};
 
-export interface Assessment {
-  id: number;
-  title: string;
-  year: number;
-  month: number;
-  status: AssessmentStatus;
-  description?: string;
-  initiator_role_level?: number;
-  initiator_department_id?: number;
-  initiator_district_id?: number;
-  created_by?: number;
-  created_at: string;
-  updated_at: string;
-  creator?: User;
-  scores_count?: number;
+// 总分档位
+export const SCORE_TIERS = [1, 5, 10, 20, 30];
+
+// 凭证附件
+export interface AssessmentAttachment {
+  id?: number;
+  file_type: 'image' | 'text';
+  file_name?: string | null;
+  file_path?: string | null;
+  content?: string | null;
+  uploader_id?: number;
+  uploader_name?: string;
+  created_at?: string;
 }
 
+// 参与人分配
+export interface ScoreParticipant {
+  user_id: number;
+  user_name?: string;
+  score: number;
+}
+
+// 评分记录
 export interface AssessmentScore {
   id: number;
   assessment_id: number;
+  level: ScoreLevel;
+  scorer_id: number;
+  scorer_name?: string;
+  total_score: number;
+  opinion?: string | null;
+  submitted_at?: string | null;
+  participants?: ScoreParticipant[];
+  attachments?: AssessmentAttachment[];
+}
+
+// 补充凭证请求
+export interface SupplementRequest {
+  id: number;
+  assessment_id: number;
+  requester_id: number;
+  requester_name?: string;
+  by_level?: string;
+  note?: string | null;
+  status: 'pending' | 'completed';
+  response?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+  attachments?: AssessmentAttachment[];
+}
+
+// 待考核项（工作项视角）
+export interface PendingAssessmentItem {
   work_item_id: number;
-  scorer_id?: number;
-  scorer_role_level?: number;
-  scorer_department_id?: number;
-  scorer_district_id?: number;
-  level: number;
-  score?: number;
-  comment?: string;
-  scored_at?: string;
-  created_at: string;
-  work_item?: WorkItem;
-  scorer?: User;
+  title: string;
+  department_id?: number | null;
+  department_name?: string | null;
+  district_id?: number | null;
+  district_name?: string | null;
+  sponsor_id?: number | null;
+  sponsor_name?: string | null;
+  completed_at?: string | null;
+  has_email?: boolean;
+  email_url?: string | null;
+}
+
+// 考核列表项
+export interface AssessmentListItem {
+  id: number;
+  work_item_id: number;
+  work_item_title?: string;
+  status: AssessmentStatus;
+  current_level?: ScoreLevel | null;
+  department_name?: string | null;
+  district_name?: string | null;
+  sponsor_id?: number | null;
+  sponsor_name?: string | null;
+  initiator_name?: string | null;
+  final_score?: number | null;
+  initiated_at?: string | null;
+  completed_at?: string | null;
+}
+
+// 考核详情
+export interface AssessmentDetail {
+  id: number;
+  work_item_id: number;
+  work_item_title?: string;
+  work_item_content?: string | null;
+  status: AssessmentStatus;
+  current_level?: ScoreLevel | null;
+  department_id?: number | null;
+  department_name?: string | null;
+  district_id?: number | null;
+  district_name?: string | null;
+  sponsor_id?: number | null;
+  sponsor_name?: string | null;
+  initiator_id?: number | null;
+  initiator_name?: string | null;
+  skip_dept_confirm?: boolean;
+  skip_district_score?: boolean;
+  skip_regulator_score?: boolean;
+  final_score?: number | null;
+  appeal_deadline?: string | null;
+  initiated_at?: string | null;
+  completed_at?: string | null;
+  has_email?: boolean;
+  email_url?: string | null;
+  scores?: AssessmentScore[];
+  supplement_requests?: SupplementRequest[];
+  attachments?: AssessmentAttachment[];
+  operation_logs?: AssessmentOperationLog[];
 }
 
 export interface AssessmentOperationLog {
   id: number;
-  assessment_id: number;
   action: string;
-  operator_id?: number;
-  operator?: User;
-  remark?: string;
-  created_at: string;
+  detail?: string | null;
+  operator_name?: string;
+  created_at?: string | null;
 }
 
-export interface PendingScore {
+// 非考核项
+export interface NonAssessmentItem {
   id: number;
-  assessment_id: number;
-  assessment_title: string;
   work_item_id: number;
-  work_item_title: string;
-  assignee_name?: string;
-  level: number;
-  status: 'pending' | 'scored';
-  created_at: string;
+  work_item_title?: string;
+  department_name?: string | null;
+  district_name?: string | null;
+  sponsor_name?: string | null;
+  remark?: string | null;
+  marked_by_name?: string;
+  marked_at?: string | null;
+  revoked?: boolean;
 }
 
-// 评分档位
-export const SCORE_OPTIONS = [
-  { value: 1, label: '1分 - 待改进' },
-  { value: 5, label: '5分 - 一般' },
-  { value: 10, label: '10分 - 良好' },
-  { value: 20, label: '20分 - 优秀' },
-  { value: 30, label: '30分 - 卓越' },
-];
+// 跳过规则信息
+export interface SkipRuleInfo {
+  skip_dept_confirm: boolean;
+  skip_district_score: boolean;
+  skip_regulator_score: boolean;
+  initial_status: string;
+  reason?: string;
+}
+
+// 评分提交
+export interface ScoreSubmitPayload {
+  total_score: number;
+  opinion?: string;
+  participants?: ScoreParticipant[];
+  attachments?: AssessmentAttachment[];
+}

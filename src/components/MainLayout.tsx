@@ -17,6 +17,8 @@ import {
   ApartmentOutlined,
   StarOutlined,
   TrophyOutlined,
+  EditOutlined,
+  StopOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from './AuthProvider';
@@ -42,7 +44,23 @@ const MainLayout: React.FC = () => {
   const menuItems: MenuProps['items'] = [
     { key: '/dashboard', icon: <DashboardOutlined />, label: '我的工作' },
     { key: '/kanban', icon: <ProjectOutlined />, label: '工作看板' },
-    { key: '/my-scores', icon: <StarOutlined />, label: '我的待评分' },
+    {
+      key: 'assessment',
+      label: '考核中心',
+      icon: <TrophyOutlined />,
+      children: [
+        { key: '/assessment/my', icon: <StarOutlined />, label: '我的考核' },
+        ...(userLevel >= ROLE_LEVEL.MANAGER
+          ? [{ key: '/assessment/todo', icon: <EditOutlined />, label: '待我处理' }]
+          : []),
+        ...(userLevel >= ROLE_LEVEL.MANAGER
+          ? [{ key: '/assessment/pending', icon: <UnorderedListOutlined />, label: '待考核项目' }]
+          : []),
+        ...(userLevel >= ROLE_LEVEL.MANAGER
+          ? [{ key: '/assessment/non-assessment', icon: <StopOutlined />, label: '非考核项' }]
+          : []),
+      ],
+    },
     ...(userLevel >= ROLE_LEVEL.MANAGER
       ? [
           {
@@ -50,7 +68,6 @@ const MainLayout: React.FC = () => {
             label: '后台管理',
             icon: <UserOutlined />,
             children: [
-              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/assessments', icon: <TrophyOutlined />, label: '考核管理' }] : []),
               ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' }] : []),
               ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
               ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
@@ -116,7 +133,7 @@ const MainLayout: React.FC = () => {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
-          defaultOpenKeys={['admin']}
+          defaultOpenKeys={['admin', 'assessment']}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />

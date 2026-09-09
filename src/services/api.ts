@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog, Assessment, AssessmentScore, AssessmentOperationLog, PendingScore } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog, PendingAssessmentItem, AssessmentListItem, AssessmentDetail, AssessmentAttachment, NonAssessmentItem, SkipRuleInfo, ScoreSubmitPayload } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -149,48 +149,70 @@ export const systemConfigApi = {
     api.put<SystemConfig>(`/system-config/${key}`, { config_value: value }),
 };
 
-// Assessments
+// ============ 考核模块（需求v0.3完整版） ============
 export const assessmentApi = {
-  list: async (params?: { status?: string; year?: number; month?: number; page?: number; page_size?: number; keyword?: string }): Promise<{ items: Assessment[]; total: number }> => {
-    const res = await api.get('/assessments', { params });
-    return res as unknown as { items: Assessment[]; total: number };
+  // 待考核项清单
+  pendingItems: async (params?: { page?: number; page_size?: number; keyword?: string; department_id?: number; district_id?: number; month?: string }): Promise<{ items: PendingAssessmentItem[]; total: number }> => {
+    const res = await api.get('/assessment/pending-items', { params });
+    return res as unknown as { items: PendingAssessmentItem[]; total: number };
   },
-  get: async (id: number): Promise<Assessment> => {
-    const res = await api.get(`/assessments/${id}`);
-    return res as unknown as Assessment;
+  // 跳过规则查询
+  checkSkipRule: async (workItemId: number): Promise<SkipRuleInfo> => {
+    const res = await api.get(`/assessment/check-skip-rule/${workItemId}`);
+    return res as unknown as SkipRuleInfo;
   },
-  create: (data: Partial<Assessment>) =>
-    api.post<Assessment>('/assessments', data),
-  update: (id: number, data: Partial<Assessment>) =>
-    api.put<Assessment>(`/assessments/${id}`, data),
-  delete: (id: number) =>
-    api.delete(`/assessments/${id}`),
-  start: (id: number) =>
-    api.post(`/assessments/${id}/start`),
-  complete: (id: number) =>
-    api.post(`/assessments/${id}/complete`),
-  cancel: (id: number) =>
-    api.post(`/assessments/${id}/cancel`),
-  getScores: async (id: number): Promise<AssessmentScore[]> => {
-    const res = await api.get(`/assessments/${id}/scores`);
-    return res as unknown as AssessmentScore[];
+  // 发起考核
+  initiate: async (workItemId: number): Promise<{ assessment_id: number; status: string; status_text: string; message: string }> => {
+    const res = await api.post(`/assessment/initiate/${workItemId}`);
+    return res as unknown as { assessment_id: number; status: string; status_text: string; message: string };
   },
-  getOperationLogs: async (id: number): Promise<AssessmentOperationLog[]> => {
-    const res = await api.get(`/assessments/${id}/logs`);
-    return res as unknown as AssessmentOperationLog[];
+  // 非考核项
+  markNonAssessment: (workItemId: number, remark?: string) =>
+    api.post(`/assessment/non-assessment/${workItemId}`, remark ? { remark } : undefined),
+  revokeNonAssessment: (workItemId: number) =>
+    api.delete(`/assessment/non-assessment/${workItemId}`),
+  nonAssessmentList: async (params?: { page?: number; page_size?: number; keyword?: string; department_id?: number; district_id?: number; month?: string }): Promise<{ items: NonAssessmentItem[]; total: number }> => {
+    const res = await api.get('/assessment/non-assessment', { params });
+    return res as unknown as { items: NonAssessmentItem[]; total: number };
   },
-};
-
-// Assessment Scores
-export const assessmentScoreApi = {
-  pendingList: async (): Promise<PendingScore[]> => {
-    const res = await api.get('/assessments/pending-scores');
-    return res as unknown as PendingScore[];
+  // 部门总监确认
+  toConfirm: async (params?: { page?: number; page_size?: number }): Promise<{ items: AssessmentListItem[]; total: number }> => {
+    const res = await api.get('/assessment/to-confirm', { params });
+    return res as unknown as { items: AssessmentListItem[]; total: number };
   },
-  submit: (scoreId: number, data: { score: number; comment?: string }) =>
-    api.put(`/assessments/scores/${scoreId}`, data),
-  get: async (scoreId: number): Promise<AssessmentScore> => {
-    const res = await api.get(`/assessments/scores/${scoreId}`);
-    return res as unknown as AssessmentScore;
+  deptConfirm: (id: number) =>
+    api.post(`/assessment/${id}/dept-confirm`),
+  deptReject: (id: number, reason?: string) =>
+    api.post(`/assessment/${id}/dept-reject`, null, { params: reason ? { reason } : {} }),
+  // 评分
+  toScore: async (params?: { page?: number; page_size?: number }): Promise<{ items: AssessmentListItem[]; total: number }> => {
+    const res = await api.get('/assessment/to-score', { params });
+    return res as unknown as { items: AssessmentListItem[]; total: number };
+  },
+  submitScore: (id: number, data: ScoreSubmitPayload) =>
+    api.post(`/assessment/${id}/score`, data),
+  // 补充凭证
+  requestSupplement: (id: number, note: string) =>
+    api.post(`/assessment/${id}/supplement-request`, { note }),
+  submitSupplement: (id: number, data: { supplement_request_id: number; response?: string; attachments?: AssessmentAttachment[] }) =>
+    api.post(`/assessment/${id}/supplement-submit`, data),
+  // 详情
+  detail: async (id: number): Promise<AssessmentDetail> => {
+    const res = await api.get(`/assessment/${id}`);
+    return res as unknown as AssessmentDetail;
+  },
+  // 我的考核
+  myAssessments: async (params?: { page?: number; page_size?: number; status?: string; month?: string; keyword?: string }): Promise<{ items: AssessmentListItem[]; total: number }> => {
+    const res = await api.get('/assessment/my-assessments', { params });
+    return res as unknown as { items: AssessmentListItem[]; total: number };
+  },
+  // 上传凭证图片
+  uploadAttachment: async (assessmentId: number, type: 'scoring' | 'supplement' | 'appeal', file: File): Promise<{ file_type: string; file_name: string; file_path: string }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await api.post(`/assessment/upload-attachment?assessment_id=${assessmentId}&type=${type}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res as unknown as { file_type: string; file_name: string; file_path: string };
   },
 };
