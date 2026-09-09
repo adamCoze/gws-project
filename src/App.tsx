@@ -12,6 +12,9 @@ import EmailConfigPage from './pages/admin/EmailConfigPage';
 import EmailLogPage from './pages/admin/EmailLogPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
+import AssessmentListPage from './pages/admin/AssessmentListPage';
+import AssessmentDetailPage from './pages/admin/AssessmentDetailPage';
+import MyScoresPage from './pages/MyScoresPage';
 import { ROLE_LEVELS } from './types';
 import type { RoleType } from './types';
 import { ROLE_LEVEL } from './types';
@@ -53,6 +56,7 @@ const AppRoutes: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="kanban" element={<KanbanPage />} />
+        <Route path="my-scores" element={<MyScoresPage />} />
         <Route
           path="admin/users"
           element={
@@ -106,6 +110,22 @@ const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <StatusLogPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/assessments"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+              <AssessmentListPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/assessments/:id"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+              <AssessmentDetailPage />
             </ProtectedRoute>
           }
         />

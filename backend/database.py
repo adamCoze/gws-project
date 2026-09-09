@@ -136,6 +136,73 @@ async def _run_migrations():
                     logger.info(f"迁移 v5：已为 {migrated_count} 个用户填充 role_level")
                 new_version = 5
 
+            # ---- v6: 主副角色体系 + 考核角色预留字段 ----
+            if current_version < 6:
+                # users 表新增 secondary_roles 字段
+                if not await _column_exists("users", "secondary_roles"):
+                    await session.execute(text("ALTER TABLE users ADD COLUMN secondary_roles TEXT NOT NULL DEFAULT '[]'"))
+                    logger.info("迁移 v6：users 表新增 secondary_roles 字段")
+                # assessments 表新增 initiator_role_level 字段
+                if not await _column_exists("assessments", "initiator_role_level"):
+                    await session.execute(text("ALTER TABLE assessments ADD COLUMN initiator_role_level INTEGER"))
+                    logger.info("迁移 v6：assessments 表新增 initiator_role_level 字段")
+                # assessment_scores 表新增 scorer_role_level 字段
+                if not await _column_exists("assessment_scores", "scorer_role_level"):
+                    await session.execute(text("ALTER TABLE assessment_scores ADD COLUMN scorer_role_level INTEGER"))
+                    logger.info("迁移 v6：assessment_scores 表新增 scorer_role_level 字段")
+                new_version = 6
+
+            # ---- v7: 副角色升级为对象数组 + 考核表补充部门/区域字段 ----
+            if current_version < 7:
+                import json as _json
+                from models import User
+
+                # 迁移 secondary_roles 整数数组 -> 对象数组
+                result = await session.execute(select(User))
+                users = result.scalars().all()
+                migrated_count = 0
+                for user in users:
+                    raw = user.secondary_roles
+                    if not raw:
+                        continue
+                    # 尝试解析
+                    try:
+                        data = _json.loads(raw) if isinstance(raw, str) else raw
+                    except Exception:
+                        continue
+                    if not isinstance(data, list) or not data:
+                        continue
+                    # 判断是否已经是对象数组格式
+                    if isinstance(data[0], dict):
+                        continue
+                    # 整数数组 -> 对象数组
+                    new_data = [
+                        {"role_level": int(x), "department_id": None, "district_id": None}
+                        for x in data
+                    ]
+                    user.secondary_roles = new_data
+                    migrated_count += 1
+                if migrated_count:
+                    logger.info(f"迁移 v7：已为 {migrated_count} 个用户升级副角色为对象数组格式")
+
+                # assessments 表补充发起部门/区域
+                if not await _column_exists("assessments", "initiator_department_id"):
+                    await session.execute(text("ALTER TABLE assessments ADD COLUMN initiator_department_id INTEGER"))
+                    logger.info("迁移 v7：assessments 表新增 initiator_department_id 字段")
+                if not await _column_exists("assessments", "initiator_district_id"):
+                    await session.execute(text("ALTER TABLE assessments ADD COLUMN initiator_district_id INTEGER"))
+                    logger.info("迁移 v7：assessments 表新增 initiator_district_id 字段")
+
+                # assessment_scores 表补充评分部门/区域
+                if not await _column_exists("assessment_scores", "scorer_department_id"):
+                    await session.execute(text("ALTER TABLE assessment_scores ADD COLUMN scorer_department_id INTEGER"))
+                    logger.info("迁移 v7：assessment_scores 表新增 scorer_department_id 字段")
+                if not await _column_exists("assessment_scores", "scorer_district_id"):
+                    await session.execute(text("ALTER TABLE assessment_scores ADD COLUMN scorer_district_id INTEGER"))
+                    logger.info("迁移 v7：assessment_scores 表新增 scorer_district_id 字段")
+
+                new_version = 7
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

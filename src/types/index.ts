@@ -209,3 +209,95 @@ export interface LoginResponse {
   access_token: string;
   user: User;
 }
+// ============ 考核模块 ============
+
+export type AssessmentStatus = 'draft' | 'scoring' | 'reviewing' | 'completed' | 'cancelled';
+
+export const ASSESSMENT_STATUS_LABELS: Record<AssessmentStatus, string> = {
+  draft: '草稿',
+  scoring: '评分中',
+  reviewing: '复核中',
+  completed: '已完成',
+  cancelled: '已取消',
+};
+
+export const ASSESSMENT_STATUS_COLORS: Record<AssessmentStatus, string> = {
+  draft: 'default',
+  scoring: 'processing',
+  reviewing: 'warning',
+  completed: 'success',
+  cancelled: 'default',
+};
+
+export const ASSESSMENT_STATUS_OPTIONS = [
+  { value: 'draft', label: '草稿' },
+  { value: 'scoring', label: '评分中' },
+  { value: 'reviewing', label: '复核中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'cancelled', label: '已取消' },
+];
+
+export interface Assessment {
+  id: number;
+  title: string;
+  year: number;
+  month: number;
+  status: AssessmentStatus;
+  description?: string;
+  initiator_role_level?: number;
+  initiator_department_id?: number;
+  initiator_district_id?: number;
+  created_by?: number;
+  created_at: string;
+  updated_at: string;
+  creator?: User;
+  scores_count?: number;
+}
+
+export interface AssessmentScore {
+  id: number;
+  assessment_id: number;
+  work_item_id: number;
+  scorer_id?: number;
+  scorer_role_level?: number;
+  scorer_department_id?: number;
+  scorer_district_id?: number;
+  level: number;
+  score?: number;
+  comment?: string;
+  scored_at?: string;
+  created_at: string;
+  work_item?: WorkItem;
+  scorer?: User;
+}
+
+export interface AssessmentOperationLog {
+  id: number;
+  assessment_id: number;
+  action: string;
+  operator_id?: number;
+  operator?: User;
+  remark?: string;
+  created_at: string;
+}
+
+export interface PendingScore {
+  id: number;
+  assessment_id: number;
+  assessment_title: string;
+  work_item_id: number;
+  work_item_title: string;
+  assignee_name?: string;
+  level: number;
+  status: 'pending' | 'scored';
+  created_at: string;
+}
+
+// 评分档位
+export const SCORE_OPTIONS = [
+  { value: 1, label: '1分 - 待改进' },
+  { value: 5, label: '5分 - 一般' },
+  { value: 10, label: '10分 - 良好' },
+  { value: 20, label: '20分 - 优秀' },
+  { value: 30, label: '30分 - 卓越' },
+];

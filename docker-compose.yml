@@ -9,7 +9,6 @@ services:
       - "80:80"
     volumes:
       - ./backend:/app/backend
-      - ./dist:/app/dist
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env

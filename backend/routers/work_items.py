@@ -131,8 +131,11 @@ async def list_work_items(
     """获取工作项列表"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
-        selectinload(WorkItem.assignee),
+        selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
     )
 
@@ -172,8 +175,11 @@ async def list_my_work_items(
     """获取当前用户的工作项"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
-        selectinload(WorkItem.assignee),
+        selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
     )
 
@@ -270,8 +276,11 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
@@ -437,8 +446,11 @@ async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)
@@ -461,8 +473,11 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
@@ -529,8 +544,11 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)
@@ -559,8 +577,11 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item_id)
@@ -588,8 +609,11 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-            selectinload(WorkItem.assignee),
+            selectinload(WorkItem.assignee).selectinload(User.department),
+        selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
         )
         .where(WorkItem.id == item.id)

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog, Assessment, AssessmentScore, AssessmentOperationLog, PendingScore } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -147,4 +147,50 @@ export const systemConfigApi = {
     api.get<SystemConfig>(`/system-config/${key}`),
   set: (key: string, value: string) =>
     api.put<SystemConfig>(`/system-config/${key}`, { config_value: value }),
+};
+
+// Assessments
+export const assessmentApi = {
+  list: async (params?: { status?: string; year?: number; month?: number; page?: number; page_size?: number; keyword?: string }): Promise<{ items: Assessment[]; total: number }> => {
+    const res = await api.get('/assessments', { params });
+    return res as unknown as { items: Assessment[]; total: number };
+  },
+  get: async (id: number): Promise<Assessment> => {
+    const res = await api.get(`/assessments/${id}`);
+    return res as unknown as Assessment;
+  },
+  create: (data: Partial<Assessment>) =>
+    api.post<Assessment>('/assessments', data),
+  update: (id: number, data: Partial<Assessment>) =>
+    api.put<Assessment>(`/assessments/${id}`, data),
+  delete: (id: number) =>
+    api.delete(`/assessments/${id}`),
+  start: (id: number) =>
+    api.post(`/assessments/${id}/start`),
+  complete: (id: number) =>
+    api.post(`/assessments/${id}/complete`),
+  cancel: (id: number) =>
+    api.post(`/assessments/${id}/cancel`),
+  getScores: async (id: number): Promise<AssessmentScore[]> => {
+    const res = await api.get(`/assessments/${id}/scores`);
+    return res as unknown as AssessmentScore[];
+  },
+  getOperationLogs: async (id: number): Promise<AssessmentOperationLog[]> => {
+    const res = await api.get(`/assessments/${id}/logs`);
+    return res as unknown as AssessmentOperationLog[];
+  },
+};
+
+// Assessment Scores
+export const assessmentScoreApi = {
+  pendingList: async (): Promise<PendingScore[]> => {
+    const res = await api.get('/assessments/pending-scores');
+    return res as unknown as PendingScore[];
+  },
+  submit: (scoreId: number, data: { score: number; comment?: string }) =>
+    api.put(`/assessments/scores/${scoreId}`, data),
+  get: async (scoreId: number): Promise<AssessmentScore> => {
+    const res = await api.get(`/assessments/scores/${scoreId}`);
+    return res as unknown as AssessmentScore;
+  },
 };

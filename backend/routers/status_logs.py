@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from database import get_db
-from models import StatusChangeLog
+from models import StatusChangeLog, User
 from schemas import StatusChangeLogOut
 from auth import require_role
 from models import RoleLevel
@@ -23,7 +23,8 @@ async def list_logs(
     _user=Depends(require_role(RoleLevel.MANAGER)),
 ):
     query = select(StatusChangeLog).options(
-        selectinload(StatusChangeLog.operator),
+        selectinload(StatusChangeLog.operator).selectinload(User.department),
+        selectinload(StatusChangeLog.operator).selectinload(User.district),
         selectinload(StatusChangeLog.work_item),
     )
     if work_item_id:

@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from models import User
+from sqlalchemy.orm import selectinload
 from schemas import LoginRequest, TokenResponse, UserOut
 from auth import verify_password, get_password_hash, create_access_token, get_current_user
 
@@ -19,7 +20,11 @@ class ChangePasswordRequest(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.username == req.username))
+    result = await db.execute(
+        select(User)
+        .where(User.username == req.username)
+        .options(selectinload(User.department), selectinload(User.district))
+    )
     user = result.scalar_one_or_none()
     if not user or not verify_password(req.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")

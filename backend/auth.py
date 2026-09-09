@@ -8,6 +8,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from config import settings
 from database import get_db
@@ -53,7 +54,11 @@ async def get_current_user(
     except (ValueError, TypeError):
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    result = await db.execute(
+        select(User)
+        .where(User.id == user_id)
+        .options(selectinload(User.department), selectinload(User.district))
+    )
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise credentials_exception
@@ -78,7 +83,11 @@ def require_role(min_level: int):
 # 向后兼容：旧代码仍通过 role 字符串查等级
 # 新代码应直接使用 user.role_level 字段
 ROLE_LEVELS = {
+    "consultant": 1,
+    "intern": 1,  # 向后兼容
     "staff": 2,
+    "dept_director": 5,
+    "group_director": 7,
     "manager": 3,
     "district_manager": 4,
     "regulator": 6,
