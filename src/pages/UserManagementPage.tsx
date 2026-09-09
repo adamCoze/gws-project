@@ -147,7 +147,7 @@ const UserManagementPage: React.FC = () => {
             <Select options={[
               { value: 'staff', label: '专员' },
               { value: 'manager', label: '经理' },
-              { value: 'district_manager', label: '区总' },
+              { value: 'district_manager', label: '区域总监' },
               { value: 'regulator', label: '规管' },
               { value: 'president', label: '总裁' },
               { value: 'admin', label: '管理员' },
