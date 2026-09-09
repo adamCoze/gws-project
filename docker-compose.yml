@@ -10,6 +10,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./dist:/app/dist
+      - ./data/assessment-attachments:/app/data/assessment-attachments
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env

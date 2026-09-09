@@ -14,7 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     JSON,
-)
+    UniqueConstraint,)
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 from database import Base

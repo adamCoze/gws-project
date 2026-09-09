@@ -431,3 +431,53 @@ async def my_assessments_api(
         "page_size": page_size,
         "items": [AssessmentListItemOut.model_validate(item).model_dump() for item in items],
     }
+
+
+# ======================================================================
+# 附件上传（评分凭证/补充凭证/异议凭证 图片上传）
+# ======================================================================
+
+import os
+import uuid
+from fastapi import UploadFile, File
+
+ATTACHMENT_ROOT = os.environ.get("ATTACHMENT_ROOT", "/app/data/assessment-attachments")
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+@router.post("/upload-attachment", response_model=dict)
+async def upload_attachment(
+    assessment_id: int,
+    type: str = "scoring",
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """上传凭证图片，返回 file_path 供评分/补充提交时引用"""
+    if type not in ("scoring", "supplement", "appeal"):
+        raise HTTPException(status_code=400, detail="无效的凭证类型")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        raise HTTPException(status_code=400, detail="仅支持图片格式: jpg/png/gif/webp/bmp")
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="文件不能超过10MB")
+
+    dir_path = os.path.join(ATTACHMENT_ROOT, str(assessment_id), type)
+    os.makedirs(dir_path, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex[:12]}{ext}"
+    file_path = os.path.join(dir_path, safe_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    rel_path = f"/api/assessment-attachments/{assessment_id}/{type}/{safe_name}"
+    logger.info(f"用户{current_user.id}上传凭证: {rel_path} ({len(content)}字节)")
+    return {
+        "success": True,
+        "file_type": "image",
+        "file_name": file.filename,
+        "file_path": rel_path,
+    }

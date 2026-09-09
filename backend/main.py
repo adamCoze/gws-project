@@ -99,6 +99,13 @@ app.add_middleware(
 )
 
 # 注册路由
+# 考核凭证附件静态访问
+import os as _os
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+_attach_root = _os.environ.get("ATTACHMENT_ROOT", "/app/data/assessment-attachments")
+_os.makedirs(_attach_root, exist_ok=True)
+app.mount("/api/assessment-attachments", _StaticFiles(directory=_attach_root), name="assessment-attachments")
+
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(work_items.router, prefix="/api")
