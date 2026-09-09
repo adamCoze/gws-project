@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import settings
 from database import init_db
-from routers import auth, users, work_items, departments, districts, email_config, status_logs, kanban, email_logs, system_config, quick_complete, assessments
+from routers import auth, users, work_items, departments, districts, email_config, status_logs, kanban, email_logs, system_config, quick_complete, assessment
 
 
 @asynccontextmanager
@@ -109,7 +109,7 @@ app.include_router(status_logs.router, prefix="/api")
 app.include_router(kanban.router, prefix="/api")
 app.include_router(email_logs.router, prefix="/api")
 app.include_router(system_config.router, prefix="/api")
-app.include_router(assessments.router, prefix="/api")
+app.include_router(assessment.router, prefix="/api")
 app.include_router(quick_complete.router)  # 快捷完成页面（无/api前缀）
 
 

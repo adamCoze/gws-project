@@ -184,8 +184,9 @@ class WorkItem(Base):
     sponsor = relationship("User", foreign_keys=[sponsor_id])
     completer = relationship("User", foreign_keys=[completed_by])
     status_logs = relationship("StatusChangeLog", back_populates="work_item", cascade="all, delete-orphan")
-    assessment_scores = relationship("AssessmentScore", back_populates="work_item")
-    non_assessment_items = relationship("NonAssessmentItem", back_populates="work_item")
+    assessment = relationship("Assessment", back_populates="work_item", uselist=False)
+    non_assessment_item = relationship("NonAssessmentItem", back_populates="work_item", uselist=False)
+    assessment_operation_logs = relationship("AssessmentOperationLog", back_populates="work_item", cascade="all, delete-orphan")
 
 
 class StatusChangeLog(Base):
@@ -266,46 +267,95 @@ class EmailUrlCache(Base):
 # 考核模块模型
 # ======================================================================
 
+
 class AssessmentStatus(str, Enum):
-    draft = "draft"          # 草稿
-    scoring = "scoring"      # 评分中
-    reviewing = "reviewing"  # 复核中
-    completed = "completed"  # 已完成
-    cancelled = "cancelled"  # 已取消
+    """考核状态枚举"""
+    pending_dept_confirm = "pending_dept_confirm"       # 待部门总监确认
+    pending_district_score = "pending_district_score"   # 待区总评分
+    pending_regulator_score = "pending_regulator_score" # 待监察主任评分
+    pending_group_score = "pending_group_score"         # 待集团总监评分
+    pending_supplement = "pending_supplement"           # 待补充凭证
+    appeal_period = "appeal_period"                     # 异议期
+    appealed = "appealed"                               # 已提异议
+    ai_reviewing = "ai_reviewing"                       # AI审查中
+    pending_ruling = "pending_ruling"                   # 待裁定
+    completed = "completed"                             # 已完结
+    cancelled = "cancelled"                             # 已终止
+
+
+class ScoreLevel(str, Enum):
+    """评分层级枚举"""
+    district = "district"   # 区总评分（第1层）
+    regulator = "regulator" # 监察主任评分（第2层）
+    group = "group"         # 集团总监评分（第3层）
+
+
+class AttachmentType(str, Enum):
+    """附件类型枚举"""
+    scoring = "scoring"       # 评分依据凭证
+    supplement = "supplement" # 补充凭证
+    appeal = "appeal"         # 异议凭证
+
+
+class ScoreTier:
+    """总分档位"""
+    TIERS = {1, 5, 10, 20, 30}
 
 
 class SupplementRequestStatus(str, Enum):
-    pending = "pending"    # 待处理
-    supplied = "supplied"  # 已补充
-    rejected = "rejected"  # 已拒绝
+    """补充请求状态"""
+    pending = "pending"
+    completed = "completed"
 
 
 class AppealStatus(str, Enum):
-    pending = "pending"      # 待处理
-    approved = "approved"    # 已通过
-    rejected = "rejected"    # 已驳回
-    withdrawn = "withdrawn"  # 已撤回
+    """异议状态"""
+    pending = "pending"          # 待补充意见
+    ai_reviewing = "ai_reviewing" # AI审查中
+    ai_completed = "ai_completed" # AI审查完成
+    pending_ruling = "pending_ruling" # 待裁定
+    closed = "closed"            # 已结案
+
+
+# ======================================================================
+# 区域 / 部门
+
+# ======================================================================
 
 
 class Assessment(Base):
-    """考核主表"""
+    """考核主表 - 每个工作项一条考核记录"""
     __tablename__ = "assessments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    title = Column(String(200), nullable=False)
-    year = Column(Integer, nullable=False)
-    month = Column(Integer, nullable=False)  # 0=季度/年度考核, 1-12=月度
-    status = Column(String(20), default=AssessmentStatus.draft.value, nullable=False)
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
+    initiator_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sponsor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
+    district_id = Column(Integer, ForeignKey("districts.id"), nullable=True, index=True)
+    status = Column(String(30), nullable=False, index=True)
     initiator_role_level = Column(Integer, nullable=True)
-    initiator_department_id = Column(Integer, nullable=True)
-    initiator_district_id = Column(Integer, nullable=True)
-    description = Column(Text, nullable=True)
-    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    current_level = Column(String(20), nullable=True)    # 当前评分层级 district/regulator/group
+    supplement_by_level = Column(String(20), nullable=True)  # 哪一层要求补充的
+    skip_dept_confirm = Column(Boolean, default=False, nullable=False)
+    skip_district_score = Column(Boolean, default=False, nullable=False)
+    skip_regulator_score = Column(Boolean, default=False, nullable=False)
+    appeal_deadline = Column(DateTime, nullable=True, index=True)
+    final_score = Column(Float, nullable=True)  # 最终得分（集团总监总分）
+    initiated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    creator = relationship("User", foreign_keys=[created_by])
+    work_item = relationship("WorkItem", back_populates="assessment")
+    initiator = relationship("User", foreign_keys=[initiator_id])
+    sponsor = relationship("User", foreign_keys=[sponsor_id])
+    department = relationship("Department", foreign_keys=[department_id])
+    district = relationship("District", foreign_keys=[district_id])
     scores = relationship("AssessmentScore", back_populates="assessment", cascade="all, delete-orphan")
+    attachments = relationship("AssessmentAttachment", back_populates="assessment", cascade="all, delete-orphan")
+    supplement_requests = relationship("AssessmentSupplementRequest", back_populates="assessment", cascade="all, delete-orphan")
+    appeal = relationship("AssessmentAppeal", back_populates="assessment", uselist=False)
     operation_logs = relationship("AssessmentOperationLog", back_populates="assessment", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -318,28 +368,23 @@ class AssessmentScore(Base):
     __tablename__ = "assessment_scores"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False)
-    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False)
-    scorer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False, index=True)
+    level = Column(String(20), nullable=False)  # district/regulator/group
+    scorer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     scorer_role_level = Column(Integer, nullable=True)
-    scorer_department_id = Column(Integer, nullable=True)
-    scorer_district_id = Column(Integer, nullable=True)
-    level = Column(Integer, nullable=False)  # 评分层级 1-9
-    score = Column(Integer, nullable=True)   # 总分档位：1/5/10/20/30
-    comment = Column(Text, nullable=True)
-    scored_at = Column(DateTime, nullable=True)
+    total_score = Column(Integer, nullable=False)  # 1/5/10/20/30
+    opinion = Column(Text, nullable=True)
+    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     assessment = relationship("Assessment", back_populates="scores")
-    work_item = relationship("WorkItem", back_populates="assessment_scores")
     scorer = relationship("User", foreign_keys=[scorer_id])
     participants = relationship("AssessmentScoreParticipant", back_populates="score", cascade="all, delete-orphan")
     attachments = relationship("AssessmentAttachment", back_populates="score", cascade="all, delete-orphan")
-    supplement_requests = relationship("AssessmentSupplementRequest", back_populates="score", cascade="all, delete-orphan")
-    appeals = relationship("AssessmentAppeal", back_populates="score", cascade="all, delete-orphan")
 
     __table_args__ = (
+        UniqueConstraint("assessment_id", "level", name="uq_assessment_score_level"),
         {"sqlite_autoincrement": True},
     )
 
@@ -349,9 +394,10 @@ class AssessmentScoreParticipant(Base):
     __tablename__ = "assessment_score_participants"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    allocated_score = Column(Float, nullable=False)  # 支持1位小数
+    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_name = Column(String(50), nullable=False)  # 冗余，防用户改名
+    score = Column(Float, nullable=False)  # 支持1位小数
     created_at = Column(DateTime, default=datetime.utcnow)
 
     score = relationship("AssessmentScore", back_populates="participants")
@@ -359,19 +405,27 @@ class AssessmentScoreParticipant(Base):
 
 
 class AssessmentAttachment(Base):
-    """附件凭证"""
+    """附件凭证表"""
     __tablename__ = "assessment_attachments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=False)
-    file_name = Column(String(255), nullable=False)
-    file_path = Column(String(500), nullable=False)
-    file_size = Column(Integer, nullable=True)  # bytes
-    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False, index=True)
+    type = Column(String(20), nullable=False, index=True)  # scoring/supplement/appeal
+    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=True, index=True)
+    supplement_request_id = Column(Integer, ForeignKey("assessment_supplement_requests.id"), nullable=True, index=True)
+    appeal_id = Column(Integer, ForeignKey("assessment_appeals.id"), nullable=True, index=True)
+    uploader_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    file_type = Column(String(10), nullable=False)  # image/text
+    file_name = Column(String(200), nullable=True)
+    file_path = Column(String(500), nullable=True)
+    content = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    assessment = relationship("Assessment", back_populates="attachments")
     score = relationship("AssessmentScore", back_populates="attachments")
-    uploader = relationship("User", foreign_keys=[uploaded_by])
+    uploader = relationship("User", foreign_keys=[uploader_id])
+    supplement_request = relationship("AssessmentSupplementRequest", back_populates="attachments")
+    appeal = relationship("AssessmentAppeal", back_populates="attachments")
 
 
 class AssessmentSupplementRequest(Base):
@@ -379,16 +433,19 @@ class AssessmentSupplementRequest(Base):
     __tablename__ = "assessment_supplement_requests"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=False)
-    requester_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    reason = Column(Text, nullable=False)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False, index=True)
+    requester_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    request_level = Column(String(20), nullable=False)  # district/regulator/group
+    request_note = Column(Text, nullable=False)
     status = Column(String(20), default=SupplementRequestStatus.pending.value, nullable=False)
-    response = Column(Text, nullable=True)
-    responded_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    supplier_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    score = relationship("AssessmentScore", back_populates="supplement_requests")
+    assessment = relationship("Assessment", back_populates="supplement_requests")
     requester = relationship("User", foreign_keys=[requester_id])
+    supplier = relationship("User", foreign_keys=[supplier_id])
+    attachments = relationship("AssessmentAttachment", back_populates="supplement_request", cascade="all, delete-orphan")
 
 
 class AssessmentAppeal(Base):
@@ -396,18 +453,24 @@ class AssessmentAppeal(Base):
     __tablename__ = "assessment_appeals"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    score_id = Column(Integer, ForeignKey("assessment_scores.id"), nullable=False)
-    appellant_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False, unique=True)
+    appellant_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     reason = Column(Text, nullable=False)
-    status = Column(String(20), default=AppealStatus.pending.value, nullable=False)
-    handler_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    handle_comment = Column(Text, nullable=True)
-    handled_at = Column(DateTime, nullable=True)
+    regulator_comment = Column(Text, nullable=True)
+    group_director_comment = Column(Text, nullable=True)
+    ai_opinion = Column(Text, nullable=True)
+    ai_status = Column(String(20), default="pending", nullable=False)  # pending/processing/completed/failed
+    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    ai_completed_at = Column(DateTime, nullable=True)
+    ruling_result = Column(Text, nullable=True)
+    ruled_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    ruled_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    score = relationship("AssessmentScore", back_populates="appeals")
+    assessment = relationship("Assessment", back_populates="appeal")
     appellant = relationship("User", foreign_keys=[appellant_id])
-    handler = relationship("User", foreign_keys=[handler_id])
+    ruler = relationship("User", foreign_keys=[ruled_by])
+    attachments = relationship("AssessmentAttachment", back_populates="appeal", cascade="all, delete-orphan")
 
 
 class NonAssessmentItem(Base):
@@ -415,15 +478,17 @@ class NonAssessmentItem(Base):
     __tablename__ = "non_assessment_items"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False)
-    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True)
-    reason = Column(Text, nullable=True)
-    marked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, unique=True)
+    marked_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    remark = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    revoked_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    work_item = relationship("WorkItem", back_populates="non_assessment_items")
-    assessment = relationship("Assessment")
+    work_item = relationship("WorkItem", back_populates="non_assessment_item")
     marker = relationship("User", foreign_keys=[marked_by])
+    revoker = relationship("User", foreign_keys=[revoked_by])
 
 
 class AssessmentOperationLog(Base):
@@ -431,11 +496,13 @@ class AssessmentOperationLog(Base):
     __tablename__ = "assessment_operation_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False)
-    operator_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    action = Column(String(50), nullable=False)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=True, index=True)
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
+    operator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    action = Column(String(50), nullable=False, index=True)  # initiate/dept_confirm/district_score/...
     detail = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     assessment = relationship("Assessment", back_populates="operation_logs")
+    work_item = relationship("WorkItem", back_populates="assessment_operation_logs")
     operator = relationship("User", foreign_keys=[operator_id])

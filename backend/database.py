@@ -203,6 +203,24 @@ async def _run_migrations():
 
                 new_version = 7
 
+            # ---- v8: 考核模块表结构重建（简化版 -> 需求v0.3完整版，测试数据清空）----
+            if current_version < 8:
+                old_tables = [
+                    "assessment_scores",
+                    "assessment_operation_logs",
+                    "assessments",
+                ]
+                for tbl in old_tables:
+                    await session.execute(text(f"DROP TABLE IF EXISTS {tbl}"))
+                    logger.info(f"迁移 v8：删除旧结构考核表 {tbl}")
+                await session.commit()
+                # 按完整版模型重建全部考核表（含附件/异议/补充请求/参与人/非考核项新表）
+                from database import Base as _Base
+                async with engine.begin() as conn:
+                    await conn.run_sync(_Base.metadata.create_all)
+                logger.info("迁移 v8：已按完整版模型重建考核模块全部表")
+                new_version = 8
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

@@ -356,3 +356,411 @@ class EmailUrlResponse(BaseModel):
 class EmailLinkStatusResponse(BaseModel):
     """批量查询工作项邮件链接状态"""
     items: dict  # {work_item_id: bool} - True=有链接, False=无链接
+
+
+# ======================================================================
+
+
+# ---- 通用：附件 ----
+
+class AssessmentAttachmentBase(BaseModel):
+    file_type: str  # image/text
+    file_name: Optional[str] = None
+    file_path: Optional[str] = None
+    content: Optional[str] = None
+
+
+class AssessmentAttachmentOut(BaseModel):
+    id: int
+    type: str  # scoring/supplement/appeal
+    uploader_id: int
+    uploader_name: Optional[str] = None
+    file_type: str
+    file_name: Optional[str] = None
+    file_path: Optional[str] = None
+    content: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_uploader_name(cls, data: Any) -> Any:
+        if hasattr(data, 'uploader') and data.uploader:
+            data.uploader_name = data.uploader.real_name or data.uploader.username
+        return data
+
+
+# ---- 参与人分配 ----
+
+class ScoreParticipantCreate(BaseModel):
+    user_id: int
+    score: float  # 支持1位小数
+
+
+class ScoreParticipantOut(BaseModel):
+    id: int
+    user_id: int
+    user_name: str
+    score: float
+
+    class Config:
+        from_attributes = True
+
+
+# ---- 评分记录 ----
+
+class ScoreSubmitRequest(BaseModel):
+    total_score: int  # 1/5/10/20/30
+    opinion: Optional[str] = None
+    participants: List[ScoreParticipantCreate] = []
+    attachments: List[AssessmentAttachmentBase] = []
+
+
+class AssessmentScoreOut(BaseModel):
+    id: int
+    assessment_id: int
+    level: str  # district/regulator/group
+    scorer_id: int
+    scorer_name: Optional[str] = None
+    total_score: int
+    opinion: Optional[str] = None
+    submitted_at: datetime
+    participants: List[ScoreParticipantOut] = []
+    attachments: List[AssessmentAttachmentOut] = []
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_scorer_name(cls, data: Any) -> Any:
+        if hasattr(data, 'scorer') and data.scorer:
+            data.scorer_name = data.scorer.real_name or data.scorer.username
+        return data
+
+
+# ---- 补充凭证请求 ----
+
+class SupplementRequestCreate(BaseModel):
+    note: str  # 要求补充的说明
+
+
+class SupplementSubmitRequest(BaseModel):
+    supplement_request_id: int
+    response: Optional[str] = None
+    attachments: List[AssessmentAttachmentBase] = []
+
+
+class SupplementRequestOut(BaseModel):
+    id: int
+    assessment_id: int
+    requester_id: int
+    requester_name: Optional[str] = None
+    request_level: str
+    request_note: str
+    status: str
+    submitted_at: Optional[datetime] = None
+    supplier_id: Optional[int] = None
+    supplier_name: Optional[str] = None
+    created_at: datetime
+    attachments: List[AssessmentAttachmentOut] = []
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_names(cls, data: Any) -> Any:
+        if hasattr(data, 'requester') and data.requester:
+            data.requester_name = data.requester.real_name or data.requester.username
+        if hasattr(data, 'supplier') and data.supplier:
+            data.supplier_name = data.supplier.real_name or data.supplier.username
+        return data
+
+
+# ---- 非考核项 ----
+
+class NonAssessmentMarkRequest(BaseModel):
+    remark: Optional[str] = None
+
+
+class NonAssessmentItemOut(BaseModel):
+    id: int
+    work_item_id: int
+    work_item_title: Optional[str] = None
+    marked_by: int
+    marker_name: Optional[str] = None
+    remark: Optional[str] = None
+    is_active: bool
+    revoked_by: Optional[int] = None
+    revoked_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        if hasattr(data, 'work_item') and data.work_item:
+            data.work_item_title = data.work_item.title
+        if hasattr(data, 'marker') and data.marker:
+            data.marker_name = data.marker.real_name or data.marker.username
+        return data
+
+
+# ---- 待考核项 ----
+
+class PendingAssessmentItemOut(BaseModel):
+    work_item_id: int
+    title: str
+    department_id: Optional[int] = None
+    department_name: Optional[str] = None
+    district_id: Optional[int] = None
+    district_name: Optional[str] = None
+    sponsor_id: Optional[int] = None
+    sponsor_name: Optional[str] = None
+    completed_at: Optional[datetime] = None
+    has_email: bool = False
+    email_url: Optional[str] = None
+
+
+# ---- 考核列表项（我的考核 / 待办列表）----
+
+class AssessmentListItemOut(BaseModel):
+    id: int
+    work_item_id: int
+    work_item_title: str
+    status: str
+    status_text: str = ""
+    current_level: Optional[str] = None
+    sponsor_id: int
+    sponsor_name: Optional[str] = None
+    department_name: Optional[str] = None
+    district_name: Optional[str] = None
+    final_score: Optional[float] = None
+    appeal_deadline: Optional[datetime] = None
+    initiated_at: datetime
+    has_email: bool = False
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        if hasattr(data, 'work_item') and data.work_item:
+            data.work_item_title = data.work_item.title
+            data.has_email = bool(data.work_item.message_id)
+        if hasattr(data, 'sponsor') and data.sponsor:
+            data.sponsor_name = data.sponsor.real_name or data.sponsor.username
+        if hasattr(data, 'department') and data.department:
+            data.department_name = data.department.name
+        if hasattr(data, 'district') and data.district:
+            data.district_name = data.district.name
+        # 状态中文
+        from models import AssessmentStatus
+        status_map = {
+            AssessmentStatus.pending_dept_confirm.value: "待部门总监确认",
+            AssessmentStatus.pending_district_score.value: "待区总评分",
+            AssessmentStatus.pending_regulator_score.value: "待监察主任评分",
+            AssessmentStatus.pending_group_score.value: "待集团总监评分",
+            AssessmentStatus.pending_supplement.value: "待补充凭证",
+            AssessmentStatus.appeal_period.value: "异议期",
+            AssessmentStatus.appealed.value: "已提异议",
+            AssessmentStatus.ai_reviewing.value: "AI审查中",
+            AssessmentStatus.pending_ruling.value: "待裁定",
+            AssessmentStatus.completed.value: "已完结",
+            AssessmentStatus.cancelled.value: "已终止",
+        }
+        if hasattr(data, 'status'):
+            data.status_text = status_map.get(data.status, data.status)
+        return data
+
+
+# ---- 考核详情 ----
+
+class AssessmentDetailOut(BaseModel):
+    id: int
+    work_item_id: int
+    work_item_title: str
+    work_item_content: Optional[str] = None
+    status: str
+    status_text: str = ""
+    current_level: Optional[str] = None
+    supplement_by_level: Optional[str] = None
+    initiator_id: int
+    initiator_name: Optional[str] = None
+    sponsor_id: int
+    sponsor_name: Optional[str] = None
+    department_id: int
+    department_name: Optional[str] = None
+    district_id: Optional[int] = None
+    district_name: Optional[str] = None
+    skip_dept_confirm: bool = False
+    skip_district_score: bool = False
+    skip_regulator_score: bool = False
+    final_score: Optional[float] = None
+    appeal_deadline: Optional[datetime] = None
+    initiated_at: datetime
+    completed_at: Optional[datetime] = None
+    has_email: bool = False
+    email_message_id: Optional[str] = None
+    scores: List[AssessmentScoreOut] = []
+    supplement_requests: List[SupplementRequestOut] = []
+    operation_logs: List["OperationLogOut"] = []
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        if hasattr(data, 'work_item') and data.work_item:
+            data.work_item_title = data.work_item.title
+            data.work_item_content = data.work_item.content
+            data.has_email = bool(data.work_item.message_id)
+            data.email_message_id = data.work_item.message_id
+        if hasattr(data, 'initiator') and data.initiator:
+            data.initiator_name = data.initiator.real_name or data.initiator.username
+        if hasattr(data, 'sponsor') and data.sponsor:
+            data.sponsor_name = data.sponsor.real_name or data.sponsor.username
+        if hasattr(data, 'department') and data.department:
+            data.department_name = data.department.name
+        if hasattr(data, 'district') and data.district:
+            data.district_name = data.district.name
+        from models import AssessmentStatus
+        status_map = {
+            AssessmentStatus.pending_dept_confirm.value: "待部门总监确认",
+            AssessmentStatus.pending_district_score.value: "待区总评分",
+            AssessmentStatus.pending_regulator_score.value: "待监察主任评分",
+            AssessmentStatus.pending_group_score.value: "待集团总监评分",
+            AssessmentStatus.pending_supplement.value: "待补充凭证",
+            AssessmentStatus.appeal_period.value: "异议期",
+            AssessmentStatus.appealed.value: "已提异议",
+            AssessmentStatus.ai_reviewing.value: "AI审查中",
+            AssessmentStatus.pending_ruling.value: "待裁定",
+            AssessmentStatus.completed.value: "已完结",
+            AssessmentStatus.cancelled.value: "已终止",
+        }
+        if hasattr(data, 'status'):
+            data.status_text = status_map.get(data.status, data.status)
+        return data
+
+
+# ---- 操作日志 ----
+
+class OperationLogOut(BaseModel):
+    id: int
+    assessment_id: Optional[int] = None
+    work_item_id: int
+    operator_id: int
+    operator_name: Optional[str] = None
+    action: str
+    action_text: str = ""
+    detail: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        if hasattr(data, 'operator') and data.operator:
+            data.operator_name = data.operator.real_name or data.operator.username
+        action_map = {
+            "initiate": "发起考核",
+            "dept_confirm": "部门总监确认",
+            "dept_reject": "部门总监退回",
+            "district_score": "区总评分",
+            "regulator_score": "监察主任评分",
+            "group_score": "集团总监评分",
+            "request_supplement": "要求补充凭证",
+            "submit_supplement": "提交补充凭证",
+            "appeal_submit": "提交异议",
+            "regulator_comment": "监察补充意见",
+            "group_comment": "集团总监补充意见",
+            "ai_review_complete": "AI审查完成",
+            "mark_non_assessment": "标记非考核项",
+            "revoke_non_assessment": "撤销非考核项",
+            "cancel": "考核终止",
+        }
+        if hasattr(data, 'action'):
+            data.action_text = action_map.get(data.action, data.action)
+        return data
+
+
+# ---- 跳过规则查询 ----
+
+class SkipRuleInfoOut(BaseModel):
+    skip_dept_confirm: bool = False
+    skip_district_score: bool = False
+    skip_regulator_score: bool = False
+    initial_status: str
+    reason: str = ""
+
+
+# ---- 发起考核响应 ----
+
+class InitiateAssessmentResponse(BaseModel):
+    assessment_id: int
+    status: str
+    status_text: str = ""
+    message: str = ""
+
+
+# ---- 通用响应 ----
+
+class SuccessResponse(BaseModel):
+    success: bool = True
+    message: Optional[str] = None
+
+
+# ---- 分页响应 ----
+
+class PaginatedResponse(BaseModel):
+    total: int
+    items: List[Any]
+
+
+# ---- 异议 ----
+
+class AppealCreateRequest(BaseModel):
+    reason: str
+    attachments: List[AssessmentAttachmentBase] = []
+
+
+class AppealOut(BaseModel):
+    id: int
+    assessment_id: int
+    appellant_id: int
+    appellant_name: Optional[str] = None
+    reason: str
+    regulator_comment: Optional[str] = None
+    group_director_comment: Optional[str] = None
+    ai_opinion: Optional[str] = None
+    ai_status: str = "pending"
+    submitted_at: datetime
+    ai_completed_at: Optional[datetime] = None
+    attachments: List[AssessmentAttachmentOut] = []
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_appellant_name(cls, data: Any) -> Any:
+        if hasattr(data, 'appellant') and data.appellant:
+            data.appellant_name = data.appellant.real_name or data.appellant.username
+        return data
+
+
+class AppealCommentRequest(BaseModel):
+    comment: str
+
+
+# 前向引用解析
+AssessmentDetailOut.model_rebuild()
