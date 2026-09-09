@@ -181,11 +181,11 @@ const MyScoresPage: React.FC = () => {
                 initialValue={10}
               >
                 <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
-                  <Radio.Button value={1}>1分<br /><span style={{ fontSize: 11, color: '#888' }}>待改进</span></Radio.Button>
-                  <Radio.Button value={5}>5分<br /><span style={{ fontSize: 11, color: '#888' }}>一般</span></Radio.Button>
-                  <Radio.Button value={10}>10分<br /><span style={{ fontSize: 11, color: '#888' }}>良好</span></Radio.Button>
-                  <Radio.Button value={20}>20分<br /><span style={{ fontSize: 11, color: '#888' }}>优秀</span></Radio.Button>
-                  <Radio.Button value={30}>30分<br /><span style={{ fontSize: 11, color: '#888' }}>卓越</span></Radio.Button>
+                  <Radio.Button value={1}>1分</Radio.Button>
+                  <Radio.Button value={5}>5分</Radio.Button>
+                  <Radio.Button value={10}>10分</Radio.Button>
+                  <Radio.Button value={20}>20分</Radio.Button>
+                  <Radio.Button value={30}>30分</Radio.Button>
                 </Radio.Group>
               </Form.Item>
 
