@@ -3,6 +3,7 @@ import { Table, Button, Input, Space, Tag, Modal, Typography, message, Tooltip }
 import { PlayCircleOutlined, StopOutlined, MailOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { PendingAssessmentItem, SkipRuleInfo } from '../types';
+import { ASSESSMENT_STATUS_LABELS } from '../types';
 import { assessmentApi } from '../services/api';
 
 const { Text, Paragraph } = Typography;
@@ -190,7 +191,7 @@ const PendingAssessmentPage: React.FC = () => {
         {skipRule && (
           <div style={{ background: '#f6f6f6', padding: 12, borderRadius: 6 }}>
             <Paragraph style={{ marginBottom: 4 }}>
-              发起后初始状态：<Tag color="blue">{skipRule.initial_status}</Tag>
+              发起后初始状态：<Tag color="blue">{ASSESSMENT_STATUS_LABELS[skipRule.initial_status] || skipRule.initial_status}</Tag>
             </Paragraph>
             {(skipRule.skip_dept_confirm || skipRule.skip_district_score || skipRule.skip_regulator_score) && (
               <Paragraph type="secondary" style={{ marginBottom: 0, fontSize: 12 }}>
