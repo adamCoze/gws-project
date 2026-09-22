@@ -37,25 +37,79 @@ logger = logging.getLogger(__name__)
 # ======================================================================
 
 
+def _get_effective_role_level(user: User) -> int:
+    """计算用户的有效角色等级（主角色 + 附加角色中取最高）"""
+    level = user.role_level or 2
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            sr_level = sr.get("role_level", 0) or 0
+            if sr_level > level:
+                level = sr_level
+    return level
+
+
+def _get_department_ids_for_role(user: User, min_level: int = RoleLevel.DEPT_DIRECTOR) -> List[int]:
+    """获取用户在指定等级及以上的所有部门ID（主角色 + 附加角色）
+    用于部门总监确认、部门维度数据过滤等场景。
+    """
+    dept_ids: set = set()
+    # 主角色
+    if user.role_level and user.role_level >= min_level and user.department_id:
+        dept_ids.add(user.department_id)
+    # 附加角色
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            sr_level = sr.get("role_level", 0) or 0
+            sr_dept = sr.get("department_id")
+            if sr_level >= min_level and sr_dept:
+                dept_ids.add(sr_dept)
+    return list(dept_ids)
+
+
+def _get_district_ids_for_role(user: User, min_level: int = RoleLevel.DISTRICT_MANAGER) -> List[int]:
+    """获取用户在指定等级及以上的所有区域ID（主角色 + 附加角色）"""
+    district_ids: set = set()
+    if user.role_level and user.role_level >= min_level and user.district_id:
+        district_ids.add(user.district_id)
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            sr_level = sr.get("role_level", 0) or 0
+            sr_dist = sr.get("district_id")
+            if sr_level >= min_level and sr_dist:
+                district_ids.add(sr_dist)
+    return list(district_ids)
+
+
 def get_data_scope_filter(user: User, table, prefix: str = ""):
-    """根据用户角色返回数据范围过滤条件
+    """根据用户角色返回数据范围过滤条件（含附加角色）
 
     - admin/regulator+ (>=6): 全部
-    - dept_director (5): 本部门
-    - district_manager (4): 本区域
+    - dept_director (5): 主角色+附加角色中所有部门总监对应的部门
+    - district_manager (4): 主角色+附加角色中所有区域总监对应的区域
     - staff/manager (<=3): 仅自己主办的
     """
     dept_col = getattr(table, f"{prefix}department_id", None) or getattr(table, "department_id", None)
     district_col = getattr(table, f"{prefix}district_id", None) or getattr(table, "district_id", None)
     sponsor_col = getattr(table, f"{prefix}sponsor_id", None) or getattr(table, "sponsor_id", None)
 
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
         return None  # 全部
-    elif level == RoleLevel.DEPT_DIRECTOR:
-        return dept_col == user.department_id
-    elif level == RoleLevel.DISTRICT_MANAGER:
-        return district_col == user.district_id
+    elif level >= RoleLevel.DEPT_DIRECTOR:
+        # 可能有多个部门（附加角色）
+        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+        if dept_ids:
+            return dept_col.in_(dept_ids)
+        # 如果没有部门（比如纯区域总监），走区域维度
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if district_ids:
+            return district_col.in_(district_ids)
+        return sponsor_col == user.id  # 兜底
+    elif level >= RoleLevel.DISTRICT_MANAGER:
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if district_ids:
+            return district_col.in_(district_ids)
+        return sponsor_col == user.id
     else:
         return sponsor_col == user.id
 
@@ -198,17 +252,9 @@ async def get_pending_items(
     query = query.where(WorkItem.id.not_in(subq_non))
 
     # 权限过滤
-    level = user.role_level or 2
-    if level >= RoleLevel.REGULATOR:
-        pass  # 全部
-    elif level == RoleLevel.DEPT_DIRECTOR:
-        query = query.where(WorkItem.department_id == user.department_id)
-    elif level == RoleLevel.DISTRICT_MANAGER:
-        query = query.where(WorkItem.department_id.in_(
-            select(Department.id).where(Department.district_id == user.district_id)
-        ))
-    else:
-        query = query.where(WorkItem.sponsor_id == user.id)
+    scope_filter = get_data_scope_filter(user, WorkItem)
+    if scope_filter is not None:
+        query = query.where(scope_filter)
 
     # 筛选
     if keyword:
@@ -377,13 +423,17 @@ async def get_dept_confirm_list(
     page: int = 1,
     page_size: int = 20,
 ) -> Tuple[int, List[Assessment]]:
-    """获取待部门总监确认的列表"""
-    if user.role_level < RoleLevel.DEPT_DIRECTOR:
+    """获取待部门总监确认的列表（含附加角色中的部门总监身份）"""
+    if _get_effective_role_level(user) < RoleLevel.DEPT_DIRECTOR:
+        return 0, []
+
+    dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+    if not dept_ids:
         return 0, []
 
     query = select(Assessment).where(
         Assessment.status == AssessmentStatus.pending_dept_confirm.value,
-        Assessment.department_id == user.department_id,
+        Assessment.department_id.in_(dept_ids),
     )
 
     query = query.options(
@@ -422,11 +472,12 @@ async def dept_confirm(
     if assessment.status != AssessmentStatus.pending_dept_confirm.value:
         raise ValueError("当前状态不允许部门总监确认")
 
-    if user.role_level < RoleLevel.DEPT_DIRECTOR:
+    if _get_effective_role_level(user) < RoleLevel.DEPT_DIRECTOR:
         raise ValueError("无权限：需要部门总监及以上角色")
 
-    # 部门总监只能确认本部门的
-    if assessment.department_id != user.department_id:
+    # 部门总监只能确认本部门的（含附加角色中的部门）
+    dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+    if assessment.department_id not in dept_ids:
         raise ValueError("无权限：只能确认本部门的考核项")
 
     # 流转到下一层
@@ -474,10 +525,11 @@ async def dept_reject(
     if assessment.status != AssessmentStatus.pending_dept_confirm.value:
         raise ValueError("当前状态不允许退回")
 
-    if user.role_level < RoleLevel.DEPT_DIRECTOR:
+    if _get_effective_role_level(user) < RoleLevel.DEPT_DIRECTOR:
         raise ValueError("无权限：需要部门总监及以上角色")
 
-    if assessment.department_id != user.department_id:
+    dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+    if assessment.department_id not in dept_ids:
         raise ValueError("无权限：只能退回本部门的考核项")
 
     # 取消考核

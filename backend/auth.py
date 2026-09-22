@@ -65,15 +65,26 @@ async def get_current_user(
     return user
 
 
+def _get_effective_role_level(user) -> int:
+    """计算用户的有效角色等级（主角色 + 附加角色中取最高）"""
+    if user.role_level and user.role_level > 0:
+        level = user.role_level
+    else:
+        from models import ROLE_TO_LEVEL_DEFAULT
+        level = ROLE_TO_LEVEL_DEFAULT.get(user.role, 1)
+    # 叠加附加角色
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            sr_level = sr.get("role_level", 0) or 0
+            if sr_level > level:
+                level = sr_level
+    return level
+
+
 def require_role(min_level: int):
-    """角色权限装饰器（基于 role_level 整数）"""
+    """角色权限装饰器（基于 role_level 整数，含附加角色）"""
     async def checker(user: User = Depends(get_current_user)):
-        # 优先使用 role_level 字段，若为 0 或 None 则回退到 role 字符串映射
-        if user.role_level and user.role_level > 0:
-            user_level = user.role_level
-        else:
-            from models import ROLE_TO_LEVEL_DEFAULT
-            user_level = ROLE_TO_LEVEL_DEFAULT.get(user.role, 1)
+        user_level = _get_effective_role_level(user)
         if user_level < min_level:
             raise HTTPException(status_code=403, detail="权限不足")
         return user
