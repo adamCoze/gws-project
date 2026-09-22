@@ -434,9 +434,14 @@ async def get_work_item_email_url(
 
 
 @router.post("", response_model=WorkItemOut, status_code=201)
-async def create_work_item(data: WorkItemCreate, db: AsyncSession = Depends(get_db)):
+async def create_work_item(
+    data: WorkItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """创建工作项"""
     item = WorkItem(**data.model_dump())
+    item.sponsor_id = current_user.id
     db.add(item)
     await db.commit()
     await db.refresh(item)
