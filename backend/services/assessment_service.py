@@ -115,6 +115,34 @@ def get_data_scope_filter(user: User, table, prefix: str = ""):
 
 
 # ======================================================================
+# 工具函数：工作项区域归属
+# ======================================================================
+
+HONGKONG_DISTRICT_ID = 1  # 香港区默认 ID
+
+
+async def get_work_item_district_id(
+    db: AsyncSession,
+    work_item: WorkItem,
+    sponsor: Optional[User] = None,
+) -> int:
+    """获取工作项的归属区域。
+
+    规则：以负责人（sponsor）的区域为准；如果负责人没有区域
+    （集团总监、监察主任、部门总监等总部角色），默认归香港区。
+    """
+    if sponsor is None and work_item.sponsor_id:
+        result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
+        sponsor = result.scalar_one_or_none()
+
+    if sponsor and sponsor.district_id:
+        return sponsor.district_id
+
+    # 负责人无区域 → 默认香港区
+    return HONGKONG_DISTRICT_ID
+
+
+# ======================================================================
 # 跳过规则
 # ======================================================================
 
@@ -171,16 +199,12 @@ async def calculate_skip_rules(
             reasons.append("由部门总监及以上确认完成")
 
     # 自动跳过：该区域无区总账号时，跳过区总评分层
-    if not skip_district and work_item.department_id:
-        dept_result = await db.execute(
-            select(Department.district_id).where(Department.id == work_item.department_id)
-        )
-        district_id = dept_result.scalar_one_or_none()
-        if district_id:
-            has_dm = await district_has_district_manager(db, district_id)
-            if not has_dm:
-                skip_district = True
-                reasons.append("该区域无区总账号，自动跳过区总评分")
+    if not skip_district:
+        district_id = await get_work_item_district_id(db, work_item, sponsor)
+        has_dm = await district_has_district_manager(db, district_id)
+        if not has_dm:
+            skip_district = True
+            reasons.append("该区域无区总账号，自动跳过区总评分")
 
     return skip_dept, skip_district, skip_regulator, "；".join(reasons)
 
@@ -300,9 +324,49 @@ async def get_pending_items(
     query = query.where(WorkItem.id.not_in(subq_non))
 
     # 权限过滤
-    scope_filter = get_data_scope_filter(user, WorkItem)
-    if scope_filter is not None:
-        query = query.where(scope_filter)
+    # 注意：WorkItem 没有 district_id 字段，区域维度通过 sponsor.district_id 判断
+    # 工作项区域 = sponsor 的区域，sponsor 无区域则默认香港区
+    level = _get_effective_role_level(user)
+    if level >= RoleLevel.REGULATOR:
+        pass  # 全部可见
+    elif level >= RoleLevel.DEPT_DIRECTOR:
+        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+        if dept_ids:
+            query = query.where(WorkItem.department_id.in_(dept_ids))
+        else:
+            # 纯区域角色：按工作项区域（sponsor 区域）过滤
+            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+            if district_ids:
+                # sponsor 有区域且在范围内，或 sponsor 无区域（默认香港=1）且香港在范围内
+                subq = select(User.id).where(
+                    or_(
+                        User.district_id.in_(district_ids),
+                        and_(
+                            User.district_id.is_(None),
+                            HONGKONG_DISTRICT_ID in district_ids,
+                        ),
+                    )
+                )
+                query = query.where(WorkItem.sponsor_id.in_(subq))
+            else:
+                query = query.where(WorkItem.sponsor_id == user.id)
+    elif level >= RoleLevel.DISTRICT_MANAGER:
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if district_ids:
+            subq = select(User.id).where(
+                or_(
+                    User.district_id.in_(district_ids),
+                    and_(
+                        User.district_id.is_(None),
+                        HONGKONG_DISTRICT_ID in district_ids,
+                    ),
+                )
+            )
+            query = query.where(WorkItem.sponsor_id.in_(subq))
+        else:
+            query = query.where(WorkItem.sponsor_id == user.id)
+    else:
+        query = query.where(WorkItem.sponsor_id == user.id)
 
     # 筛选
     if keyword:
@@ -310,9 +374,18 @@ async def get_pending_items(
     if department_id:
         query = query.where(WorkItem.department_id == department_id)
     if district_id:
-        query = query.where(WorkItem.department_id.in_(
-            select(Department.id).where(Department.district_id == district_id)
-        ))
+        # 按工作项区域筛选（区域 = sponsor 区域，无区域默认香港）
+        if district_id == HONGKONG_DISTRICT_ID:
+            # 香港区包含：sponsor 显式在香港 + sponsor 无区域（默认香港）
+            subq = select(User.id).where(
+                or_(
+                    User.district_id == district_id,
+                    User.district_id.is_(None),
+                )
+            )
+        else:
+            subq = select(User.id).where(User.district_id == district_id)
+        query = query.where(WorkItem.sponsor_id.in_(subq))
     if month:
         # 按完成月份筛选
         # month格式: YYYY-MM
@@ -387,18 +460,18 @@ async def initiate_assessment(
         raise ValueError("该工作项已标记为非考核项")
 
     # 权限检查
-    level = initiator.role_level or 2
+    level = _get_effective_role_level(initiator)
     if level < RoleLevel.REGULATOR:
-        if level == RoleLevel.DEPT_DIRECTOR:
-            if work_item.department_id != initiator.department_id:
+        if level >= RoleLevel.DEPT_DIRECTOR:
+            # 部门总监只能发起本部门的（含附加角色中的部门）
+            dept_ids = _get_department_ids_for_role(initiator, RoleLevel.DEPT_DIRECTOR)
+            if work_item.department_id not in dept_ids:
                 raise ValueError("无权限发起其他部门的考核")
-        elif level == RoleLevel.DISTRICT_MANAGER:
-            # 检查是否属于本区域
-            dept_result = await db.execute(
-                select(Department.district_id).where(Department.id == work_item.department_id)
-            )
-            dept_row = dept_result.scalar_one_or_none()
-            if dept_row != initiator.district_id:
+        elif level >= RoleLevel.DISTRICT_MANAGER:
+            # 区总只能发起本区域的（含附加角色中的区域），工作项区域=sponsor区域
+            wi_district_id = await get_work_item_district_id(db, work_item)
+            district_ids = _get_district_ids_for_role(initiator, RoleLevel.DISTRICT_MANAGER)
+            if wi_district_id not in district_ids:
                 raise ValueError("无权限发起其他区域的考核")
         else:
             # 普通员工只能发起自己主办的
@@ -416,13 +489,8 @@ async def initiate_assessment(
         db, work_item, sponsor
     )
 
-    # 获取区域ID
-    district_id = None
-    if work_item.department_id:
-        dept_result = await db.execute(
-            select(Department.district_id).where(Department.id == work_item.department_id)
-        )
-        district_id = dept_result.scalar_one_or_none()
+    # 获取区域ID（按负责人区域定，无区域默认香港区）
+    district_id = await get_work_item_district_id(db, work_item, sponsor)
 
     # 确定初始状态
     initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
@@ -616,9 +684,9 @@ async def get_to_score_list(
     page_size: int = 20,
 ) -> Tuple[int, List[Assessment]]:
     """获取待我评分的列表（按角色层级过滤）"""
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
 
-    # 确定当前用户能评哪一层
+    # 确定当前用户能评哪一层（精确匹配：哪个层级就看哪一层的待办）
     target_level = None
     status_target = None
     if level == RoleLevel.DISTRICT_MANAGER:
@@ -635,9 +703,13 @@ async def get_to_score_list(
 
     query = select(Assessment).where(Assessment.status == status_target)
 
-    # 区总只能看到本区域的
+    # 区总只能看到本区域的（含附加角色中的区域）
     if level == RoleLevel.DISTRICT_MANAGER:
-        query = query.where(Assessment.district_id == user.district_id)
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if district_ids:
+            query = query.where(Assessment.district_id.in_(district_ids))
+        else:
+            return 0, []
 
     query = query.options(
         selectinload(Assessment.work_item),
@@ -723,13 +795,15 @@ async def submit_score(
         raise ValueError("该层评分已提交，不可修改")
 
     # 权限校验
-    user_level = user.role_level or 2
+    user_level = _get_effective_role_level(user)
     if score_level == ScoreLevel.district.value:
         if user_level < RoleLevel.DISTRICT_MANAGER:
             raise ValueError("无权限：需要区总及以上角色")
-        # 区总只能评本区域的
-        if user_level == RoleLevel.DISTRICT_MANAGER and assessment.district_id != user.district_id:
-            raise ValueError("无权限：只能评分本区域的考核项")
+        # 区总只能评本区域的（含附加角色中的区域）
+        if user_level == RoleLevel.DISTRICT_MANAGER:
+            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+            if assessment.district_id not in district_ids:
+                raise ValueError("无权限：只能评分本区域的考核项")
     elif score_level == ScoreLevel.regulator.value:
         if user_level < RoleLevel.REGULATOR:
             raise ValueError("无权限：需要监察主任及以上角色")
@@ -873,14 +947,16 @@ async def request_supplement(
         raise ValueError("当前状态不允许要求补充凭证")
 
     current_level = assessment.current_level
-    user_level = user.role_level or 2
+    user_level = _get_effective_role_level(user)
 
     # 权限：当前层评分人才能要求补充
     if current_level == ScoreLevel.district.value:
         if user_level < RoleLevel.DISTRICT_MANAGER:
             raise ValueError("无权限：区总层评分只能由区总要求补充")
-        if user_level == RoleLevel.DISTRICT_MANAGER and assessment.district_id != user.district_id:
-            raise ValueError("无权限：只能要求本区域考核项的补充")
+        if user_level == RoleLevel.DISTRICT_MANAGER:
+            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+            if assessment.district_id not in district_ids:
+                raise ValueError("无权限：只能要求本区域考核项的补充")
     elif current_level == ScoreLevel.regulator.value:
         if user_level < RoleLevel.REGULATOR:
             raise ValueError("无权限：监察层评分只能由监察主任要求补充")
@@ -941,7 +1017,7 @@ async def submit_supplement(
         raise ValueError("当前状态不需要补充凭证")
 
     # 只能主办人补充
-    if assessment.sponsor_id != user.id and user.role_level < RoleLevel.REGULATOR:
+    if assessment.sponsor_id != user.id and _get_effective_role_level(user) < RoleLevel.REGULATOR:
         raise ValueError("无权限：只能由主办人提交补充凭证")
 
     # 获取补充请求
@@ -1039,14 +1115,20 @@ async def get_assessment_detail(
         return None
 
     # 权限校验
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
         return assessment
-    if level == RoleLevel.DEPT_DIRECTOR:
-        if assessment.department_id == user.department_id:
+    if level >= RoleLevel.DEPT_DIRECTOR:
+        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+        if assessment.department_id in dept_ids:
             return assessment
-    elif level == RoleLevel.DISTRICT_MANAGER:
-        if assessment.district_id == user.district_id:
+        # 也可能是区域角色，检查区域
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if assessment.district_id in district_ids:
+            return assessment
+    elif level >= RoleLevel.DISTRICT_MANAGER:
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if assessment.district_id in district_ids:
             return assessment
     else:
         # 普通员工：只能看自己主办的
@@ -1117,18 +1199,17 @@ async def mark_non_assessment(
         raise ValueError("工作项不存在")
 
     # 权限检查
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
     if level < RoleLevel.REGULATOR:
-        if level == RoleLevel.DEPT_DIRECTOR:
-            if work_item.department_id != user.department_id:
+        if level >= RoleLevel.DEPT_DIRECTOR:
+            dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+            if work_item.department_id not in dept_ids:
                 raise ValueError("无权限：只能标记本部门的工作项")
-        elif level == RoleLevel.DISTRICT_MANAGER:
-            # 检查区域
-            dept_result = await db.execute(
-                select(Department.district_id).where(Department.id == work_item.department_id)
-            )
-            dept_dist = dept_result.scalar_one_or_none()
-            if dept_dist != user.district_id:
+        elif level >= RoleLevel.DISTRICT_MANAGER:
+            # 工作项区域 = sponsor 区域，无区域默认香港
+            wi_district_id = await get_work_item_district_id(db, work_item)
+            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+            if wi_district_id not in district_ids:
                 raise ValueError("无权限：只能标记本区域的工作项")
         else:
             if work_item.sponsor_id != user.id:
@@ -1200,13 +1281,14 @@ async def revoke_non_assessment(
         raise ValueError("非考核项标记不存在或已撤销")
 
     # 部门总监及以上可撤销
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
     if level < RoleLevel.DEPT_DIRECTOR:
         raise ValueError("无权限：需要部门总监及以上角色")
 
-    # 部门总监只能撤销本部门的
-    if level == RoleLevel.DEPT_DIRECTOR:
-        if item.work_item and item.work_item.department_id != user.department_id:
+    # 部门总监只能撤销本部门的（含附加角色中的部门）
+    if level < RoleLevel.REGULATOR and level >= RoleLevel.DEPT_DIRECTOR:
+        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+        if item.work_item and item.work_item.department_id not in dept_ids:
             raise ValueError("无权限：只能撤销本部门的非考核项")
 
     item.is_active = False
@@ -1241,21 +1323,54 @@ async def get_non_assessment_list(
     query = select(NonAssessmentItem).where(NonAssessmentItem.is_active == True)  # noqa
 
     # 权限过滤
-    level = user.role_level or 2
+    level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
         pass
-    elif level == RoleLevel.DEPT_DIRECTOR:
-        query = query.where(
-            NonAssessmentItem.work_item.has(WorkItem.department_id == user.department_id)
-        )
-    elif level == RoleLevel.DISTRICT_MANAGER:
-        query = query.where(
-            NonAssessmentItem.work_item.has(
-                WorkItem.department_id.in_(
-                    select(Department.id).where(Department.district_id == user.district_id)
+    elif level >= RoleLevel.DEPT_DIRECTOR:
+        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
+        if dept_ids:
+            query = query.where(
+                NonAssessmentItem.work_item.has(WorkItem.department_id.in_(dept_ids))
+            )
+        else:
+            # 纯区域角色：按工作项区域（sponsor 区域）过滤
+            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+            if district_ids:
+                subq = select(User.id).where(
+                    or_(
+                        User.district_id.in_(district_ids),
+                        and_(
+                            User.district_id.is_(None),
+                            HONGKONG_DISTRICT_ID in district_ids,
+                        ),
+                    )
+                )
+                query = query.where(
+                    NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
+                )
+            else:
+                query = query.where(
+                    NonAssessmentItem.work_item.has(WorkItem.sponsor_id == user.id)
+                )
+    elif level >= RoleLevel.DISTRICT_MANAGER:
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if district_ids:
+            subq = select(User.id).where(
+                or_(
+                    User.district_id.in_(district_ids),
+                    and_(
+                        User.district_id.is_(None),
+                        HONGKONG_DISTRICT_ID in district_ids,
+                    ),
                 )
             )
-        )
+            query = query.where(
+                NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
+            )
+        else:
+            query = query.where(
+                NonAssessmentItem.work_item.has(WorkItem.sponsor_id == user.id)
+            )
     else:
         query = query.where(
             NonAssessmentItem.work_item.has(WorkItem.sponsor_id == user.id)
@@ -1270,12 +1385,18 @@ async def get_non_assessment_list(
             NonAssessmentItem.work_item.has(WorkItem.department_id == department_id)
         )
     if district_id:
-        query = query.where(
-            NonAssessmentItem.work_item.has(
-                WorkItem.department_id.in_(
-                    select(Department.id).where(Department.district_id == district_id)
+        # 按工作项区域筛选（sponsor 区域，无则默认香港）
+        if district_id == HONGKONG_DISTRICT_ID:
+            subq = select(User.id).where(
+                or_(
+                    User.district_id == district_id,
+                    User.district_id.is_(None),
                 )
             )
+        else:
+            subq = select(User.id).where(User.district_id == district_id)
+        query = query.where(
+            NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
         )
     if month:
         from sqlalchemy import text as sa_text
