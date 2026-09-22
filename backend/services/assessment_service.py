@@ -124,10 +124,6 @@ async def calculate_skip_rules(
     work_item: WorkItem,
     sponsor: Optional[User] = None,
 ) -> Tuple[bool, bool, bool, str]:
-    """计算某个工作项的跳过规则
-
-    返回: (skip_dept_confirm, skip_district_score, skip_regulator_score, reason)
-    """
     if sponsor is None:
         result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
         sponsor = result.scalar_one_or_none()
@@ -174,7 +170,59 @@ async def calculate_skip_rules(
             skip_dept = True
             reasons.append("由部门总监及以上确认完成")
 
+    # 自动跳过：该区域无区总账号时，跳过区总评分层
+    if not skip_district and work_item.department_id:
+        dept_result = await db.execute(
+            select(Department.district_id).where(Department.id == work_item.department_id)
+        )
+        district_id = dept_result.scalar_one_or_none()
+        if district_id:
+            has_dm = await district_has_district_manager(db, district_id)
+            if not has_dm:
+                skip_district = True
+                reasons.append("该区域无区总账号，自动跳过区总评分")
+
     return skip_dept, skip_district, skip_regulator, "；".join(reasons)
+
+
+async def district_has_district_manager(db: AsyncSession, district_id: int) -> bool:
+    """检查指定区域是否有区总角色（主角色或附加角色中含区总且对应区域匹配）
+
+    用于自动跳过区总评分层：如果该区域没有区总，考核会卡在区总层无人处理。
+    """
+    if not district_id:
+        return False
+
+    # 1. 主角色是区总，且 district_id 匹配
+    result = await db.execute(
+        select(User).where(
+            User.role_level == RoleLevel.DISTRICT_MANAGER,
+            User.district_id == district_id,
+            User.is_active == True,  # noqa
+        )
+    )
+    if result.scalar_one_or_none():
+        return True
+
+    # 2. 附加角色中有区总，且 district_id 匹配
+    #    SQLite 用 JSON 过滤，这里先查所有有 secondary_roles 的活跃用户，再内存过滤
+    result2 = await db.execute(
+        select(User).where(
+            User.secondary_roles.isnot(None),
+            User.is_active == True,  # noqa
+        )
+    )
+    users_with_secondary = result2.scalars().all()
+    for u in users_with_secondary:
+        if not u.secondary_roles:
+            continue
+        for sr in u.secondary_roles:
+            sr_level = sr.get("role_level", 0) or 0
+            sr_district = sr.get("district_id")
+            if sr_level == RoleLevel.DISTRICT_MANAGER and sr_district == district_id:
+                return True
+
+    return False
 
 
 def get_initial_status(skip_dept: bool, skip_district: bool, skip_regulator: bool) -> str:
@@ -368,10 +416,6 @@ async def initiate_assessment(
         db, work_item, sponsor
     )
 
-    # 确定初始状态
-    initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
-    current_level = get_current_level_from_status(initial_status)
-
     # 获取区域ID
     district_id = None
     if work_item.department_id:
@@ -379,6 +423,10 @@ async def initiate_assessment(
             select(Department.district_id).where(Department.id == work_item.department_id)
         )
         district_id = dept_result.scalar_one_or_none()
+
+    # 确定初始状态
+    initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
+    current_level = get_current_level_from_status(initial_status)
 
     # 创建考核记录
     assessment = Assessment(
