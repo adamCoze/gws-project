@@ -380,7 +380,7 @@ class AssessmentScore(Base):
 
     assessment = relationship("Assessment", back_populates="scores")
     scorer = relationship("User", foreign_keys=[scorer_id])
-    participants = relationship("AssessmentScoreParticipant", back_populates="score", cascade="all, delete-orphan")
+    participants = relationship("AssessmentScoreParticipant", back_populates="score_rel", cascade="all, delete-orphan")
     attachments = relationship("AssessmentAttachment", back_populates="score", cascade="all, delete-orphan")
 
     __table_args__ = (
@@ -400,7 +400,7 @@ class AssessmentScoreParticipant(Base):
     score = Column(Float, nullable=False)  # 支持1位小数
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    score = relationship("AssessmentScore", back_populates="participants")
+    score_rel = relationship("AssessmentScore", back_populates="participants")
     user = relationship("User", foreign_keys=[user_id])
 
 
