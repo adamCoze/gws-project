@@ -151,7 +151,7 @@ class WorkItemBase(BaseModel):
 
 
 class WorkItemCreate(WorkItemBase):
-    pass
+    sponsor_id: Optional[int] = None
 
 
 class WorkItemUpdate(BaseModel):

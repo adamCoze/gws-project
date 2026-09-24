@@ -156,6 +156,10 @@ const WorkItemManagementPage: React.FC = () => {
       render: (_: unknown, record: WorkItem) => record.department?.name || '-',
     },
     {
+      title: '主办人', key: 'sponsor', width: 100,
+      render: (_: unknown, record: WorkItem) => record.sponsor?.real_name || record.sponsor?.username || '-',
+    },
+    {
       title: '负责人', key: 'assignee', width: 100,
       render: (_: unknown, record: WorkItem) => getAssigneeName(record),
     },
@@ -205,6 +209,9 @@ const WorkItemManagementPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="department_id" label="部门">
             <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
+          </Form.Item>
+          <Form.Item name="sponsor_id" label="主办人" rules={[{ required: true, message: '请选择主办人' }]}>
+            <Select showSearch optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))} />
           </Form.Item>
           <Form.Item name="assignee_id" label="负责人">
             <Select allowClear showSearch optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))} />

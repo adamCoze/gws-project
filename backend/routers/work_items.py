@@ -440,8 +440,39 @@ async def create_work_item(
     current_user: User = Depends(get_current_user),
 ):
     """创建工作项"""
-    item = WorkItem(**data.model_dump())
-    item.sponsor_id = current_user.id
+    item = WorkItem(**data.model_dump(exclude={"sponsor_id"}))
+
+    # 设置主办人（sponsor_id）
+    if data.sponsor_id and data.sponsor_id != current_user.id:
+        # 指定了不同的主办人，需要权限校验
+        user_level = current_user.role_level or 2
+        if user_level >= 6:  # REGULATOR 及以上：可以指定任何人
+            target_result = await db.execute(select(User).where(User.id == data.sponsor_id))
+            target = target_result.scalar_one_or_none()
+            if not target:
+                raise HTTPException(status_code=400, detail="指定的主办人不存在")
+            item.sponsor_id = data.sponsor_id
+        elif user_level >= 5:  # DEPT_DIRECTOR：只能指定本部门/有权限部门的人
+            target_result = await db.execute(select(User).where(User.id == data.sponsor_id))
+            target = target_result.scalar_one_or_none()
+            if not target:
+                raise HTTPException(status_code=400, detail="指定的主办人不存在")
+            # 收集当前用户有权限的部门
+            allowed_depts = set()
+            if current_user.department_id:
+                allowed_depts.add(current_user.department_id)
+            if current_user.secondary_roles:
+                for sr in current_user.secondary_roles:
+                    if sr.get("role_level", 0) >= 5 and sr.get("department_id"):
+                        allowed_depts.add(sr["department_id"])
+            if target.department_id not in allowed_depts:
+                raise HTTPException(status_code=403, detail="无权限：只能指定本部门的人为主办人")
+            item.sponsor_id = data.sponsor_id
+        else:
+            # 经理及以下：不能指定别人
+            item.sponsor_id = current_user.id
+    else:
+        item.sponsor_id = current_user.id
     db.add(item)
     await db.commit()
     await db.refresh(item)
