@@ -224,6 +224,7 @@ const WorkItemManagementPage: React.FC = () => {
         item_type: item.item_type,
         status: item.status,
         department_id: item.department_id,
+        sponsor_id: item.sponsor_id,
         assignee_ids: assigneeIds,
         due_date: item.due_date ? item.due_date.slice(0, 16) : undefined,
         is_confidential: item.is_confidential,
@@ -252,6 +253,7 @@ const WorkItemManagementPage: React.FC = () => {
         item_type: values.item_type,
         status: values.status,
         department_id: values.department_id,
+        sponsor_id: values.sponsor_id,
         due_date: values.due_date,
         is_confidential: values.is_confidential,
         assignee_email_prefix: selectedUsers.length > 0 ? selectedUsers.map((u) => u.email_prefix).join(',') : null,
@@ -418,6 +420,10 @@ const WorkItemManagementPage: React.FC = () => {
       render: (_: unknown, record: WorkItem) => getAssigneeName(record),
     },
     {
+      title: '主办人', key: 'sponsor', width: 100,
+      render: (_: unknown, record: WorkItem) => record.sponsor?.real_name || record.sponsor?.username || '-',
+    },
+    {
       title: renderSortTitle('截止日期', 'due_date'), dataIndex: 'due_date', key: 'due_date', width: 120,
       render: (v: string) => v ? formatUTCDate(v) : '-',
     },
@@ -542,6 +548,14 @@ const WorkItemManagementPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="department_id" label="部门">
             <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
+          </Form.Item>
+          <Form.Item name="sponsor_id" label="主办人" rules={[{ required: true, message: '请选择主办人' }]}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="选择主办人"
+              options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
+            />
           </Form.Item>
           <Form.Item name="assignee_ids" label="负责人">
             <Select
