@@ -221,6 +221,13 @@ async def _run_migrations():
                 logger.info("迁移 v8：已按完整版模型重建考核模块全部表")
                 new_version = 8
 
+            # ---- v9: assessment_score_participants 表新增 score 字段 ----
+            if current_version < 9:
+                if not await _column_exists("assessment_score_participants", "score"):
+                    await session.execute(text("ALTER TABLE assessment_score_participants ADD COLUMN score FLOAT DEFAULT 0 NOT NULL"))
+                    logger.info("迁移 v9：assessment_score_participants 表新增 score 字段")
+                new_version = 9
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:
