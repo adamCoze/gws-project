@@ -683,33 +683,58 @@ async def get_to_score_list(
     page: int = 1,
     page_size: int = 20,
 ) -> Tuple[int, List[Assessment]]:
-    """获取待我评分的列表（按角色层级过滤）"""
-    level = _get_effective_role_level(user)
+    """获取待我评分的列表（含主角色和附加角色的所有可处理层级）
 
-    # 确定当前用户能评哪一层（精确匹配：哪个层级就看哪一层的待办）
-    target_level = None
-    status_target = None
-    if level == RoleLevel.DISTRICT_MANAGER:
-        target_level = ScoreLevel.district.value
-        status_target = AssessmentStatus.pending_district_score.value
-    elif level == RoleLevel.REGULATOR:
-        target_level = ScoreLevel.regulator.value
-        status_target = AssessmentStatus.pending_regulator_score.value
-    elif level >= RoleLevel.GROUP_DIRECTOR:
-        target_level = ScoreLevel.group.value
-        status_target = AssessmentStatus.pending_group_score.value
-    else:
+    逻辑：收集用户所有角色对应的可处理层级，用 OR 合并。
+    - 区总层级：按区域过滤（主角色+附加角色中所有区总对应的区域）
+    - 监察主任层级：全部可见
+    - 集团总监层级：全部可见
+    """
+    level = _get_effective_role_level(user)
+    if level < RoleLevel.DISTRICT_MANAGER:
         return 0, []
 
-    query = select(Assessment).where(Assessment.status == status_target)
+    # 收集所有可见的（状态, 附加过滤条件）组合
+    or_conditions = []
 
-    # 区总只能看到本区域的（含附加角色中的区域）
-    if level == RoleLevel.DISTRICT_MANAGER:
-        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
-        if district_ids:
-            query = query.where(Assessment.district_id.in_(district_ids))
-        else:
-            return 0, []
+    # 1. 区总层：用户是否有区总角色（主角色或附加角色）
+    district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+    if district_ids:
+        or_conditions.append(
+            and_(
+                Assessment.status == AssessmentStatus.pending_district_score.value,
+                Assessment.district_id.in_(district_ids),
+            )
+        )
+
+    # 2. 监察主任层：用户主角色或附加角色有监察主任及以上
+    has_regulator_role = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
+    if not has_regulator_role and user.secondary_roles:
+        for sr in user.secondary_roles:
+            if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
+                has_regulator_role = True
+                break
+    if has_regulator_role:
+        or_conditions.append(
+            Assessment.status == AssessmentStatus.pending_regulator_score.value
+        )
+
+    # 3. 集团总监层：用户有集团总监及以上角色
+    has_group_role = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
+    if not has_group_role and user.secondary_roles:
+        for sr in user.secondary_roles:
+            if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
+                has_group_role = True
+                break
+    if has_group_role:
+        or_conditions.append(
+            Assessment.status == AssessmentStatus.pending_group_score.value
+        )
+
+    if not or_conditions:
+        return 0, []
+
+    query = select(Assessment).where(or_(*or_conditions))
 
     query = query.options(
         selectinload(Assessment.work_item),
@@ -794,21 +819,33 @@ async def submit_score(
     if existing_score:
         raise ValueError("该层评分已提交，不可修改")
 
-    # 权限校验
-    user_level = _get_effective_role_level(user)
+    # 权限校验：按评分层级检查对应角色（含附加角色）
     if score_level == ScoreLevel.district.value:
-        if user_level < RoleLevel.DISTRICT_MANAGER:
-            raise ValueError("无权限：需要区总及以上角色")
-        # 区总只能评本区域的（含附加角色中的区域）
-        if user_level == RoleLevel.DISTRICT_MANAGER:
-            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
-            if assessment.district_id not in district_ids:
-                raise ValueError("无权限：只能评分本区域的考核项")
+        # 必须有区总角色（主角色或附加角色），且区域匹配
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if not district_ids:
+            raise ValueError("无权限：需要区总角色")
+        if assessment.district_id not in district_ids:
+            raise ValueError("无权限：只能评分本区域的考核项")
     elif score_level == ScoreLevel.regulator.value:
-        if user_level < RoleLevel.REGULATOR:
+        # 必须有监察主任及以上角色（主角色或附加角色）
+        has_regulator = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
+        if not has_regulator and user.secondary_roles:
+            for sr in user.secondary_roles:
+                if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
+                    has_regulator = True
+                    break
+        if not has_regulator:
             raise ValueError("无权限：需要监察主任及以上角色")
     elif score_level == ScoreLevel.group.value:
-        if user_level < RoleLevel.GROUP_DIRECTOR:
+        # 必须有集团总监及以上角色（主角色或附加角色）
+        has_group = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
+        if not has_group and user.secondary_roles:
+            for sr in user.secondary_roles:
+                if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
+                    has_group = True
+                    break
+        if not has_group:
             raise ValueError("无权限：需要集团总监及以上角色")
 
     # 创建评分记录
@@ -947,21 +984,31 @@ async def request_supplement(
         raise ValueError("当前状态不允许要求补充凭证")
 
     current_level = assessment.current_level
-    user_level = _get_effective_role_level(user)
 
-    # 权限：当前层评分人才能要求补充
+    # 权限：当前层评分人才能要求补充（含附加角色）
     if current_level == ScoreLevel.district.value:
-        if user_level < RoleLevel.DISTRICT_MANAGER:
+        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
+        if not district_ids:
             raise ValueError("无权限：区总层评分只能由区总要求补充")
-        if user_level == RoleLevel.DISTRICT_MANAGER:
-            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
-            if assessment.district_id not in district_ids:
-                raise ValueError("无权限：只能要求本区域考核项的补充")
+        if assessment.district_id not in district_ids:
+            raise ValueError("无权限：只能要求本区域考核项的补充")
     elif current_level == ScoreLevel.regulator.value:
-        if user_level < RoleLevel.REGULATOR:
+        has_regulator = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
+        if not has_regulator and user.secondary_roles:
+            for sr in user.secondary_roles:
+                if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
+                    has_regulator = True
+                    break
+        if not has_regulator:
             raise ValueError("无权限：监察层评分只能由监察主任要求补充")
     elif current_level == ScoreLevel.group.value:
-        if user_level < RoleLevel.GROUP_DIRECTOR:
+        has_group = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
+        if not has_group and user.secondary_roles:
+            for sr in user.secondary_roles:
+                if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
+                    has_group = True
+                    break
+        if not has_group:
             raise ValueError("无权限：集团层评分只能由集团总监要求补充")
 
     # 创建补充请求
