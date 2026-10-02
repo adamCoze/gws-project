@@ -196,6 +196,9 @@ export const assessmentApi = {
     api.post(`/assessment/${id}/supplement-request`, { note }),
   submitSupplement: (id: number, data: { supplement_request_id: number; response?: string; attachments?: AssessmentAttachment[] }) =>
     api.post(`/assessment/${id}/supplement-submit`, data),
+  // 发起异议
+  submitAppeal: (id: number, data: { reason: string; attachments?: AssessmentAttachment[] }) =>
+    api.post(`/assessment/${id}/appeal`, data),
   // 详情
   detail: async (id: number): Promise<AssessmentDetail> => {
     const res = await api.get(`/assessment/${id}`);

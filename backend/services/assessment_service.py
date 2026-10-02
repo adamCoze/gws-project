@@ -80,6 +80,29 @@ def _get_district_ids_for_role(user: User, min_level: int = RoleLevel.DISTRICT_M
     return list(district_ids)
 
 
+def _has_role_min(user: User, min_level: int) -> bool:
+    """检查用户是否有 >= min_level 的角色（主角色或附加角色）"""
+    if user.role_level and user.role_level >= min_level:
+        return True
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            if (sr.get("role_level") or 0) >= min_level:
+                return True
+    return False
+
+
+def _has_role_in_range(user: User, min_level: int, max_level: int) -> bool:
+    """检查用户是否有落在 [min_level, max_level] 区间的角色（主角色或附加角色）"""
+    if user.role_level and min_level <= user.role_level <= max_level:
+        return True
+    if user.secondary_roles:
+        for sr in user.secondary_roles:
+            lvl = sr.get("role_level") or 0
+            if min_level <= lvl <= max_level:
+                return True
+    return False
+
+
 def get_data_scope_filter(user: User, table, prefix: str = ""):
     """根据用户角色返回数据范围过滤条件（含附加角色）
 
@@ -686,9 +709,10 @@ async def get_to_score_list(
     """获取待我评分的列表（含主角色和附加角色的所有可处理层级）
 
     逻辑：收集用户所有角色对应的可处理层级，用 OR 合并。
-    - 区总层级：按区域过滤（主角色+附加角色中所有区总对应的区域）
-    - 监察主任层级：全部可见
-    - 集团总监层级：全部可见
+    - 区总层（level=4）：只有区总角色能看到，按区域过滤
+    - 规管层（level=5,6）：部门总监+监察主任能看到，全部可见
+    - 集团层（level>=7）：集团总监及以上能看到，全部可见
+    注意：高等级不包含低等级待办，各层级各自独立。
     """
     level = _get_effective_role_level(user)
     if level < RoleLevel.DISTRICT_MANAGER:
@@ -707,26 +731,14 @@ async def get_to_score_list(
             )
         )
 
-    # 2. 监察主任层：用户主角色或附加角色有监察主任及以上
-    has_regulator_role = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
-    if not has_regulator_role and user.secondary_roles:
-        for sr in user.secondary_roles:
-            if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
-                has_regulator_role = True
-                break
-    if has_regulator_role:
+    # 2. 规管层（部门总监+监察主任）：level 在 5~6 之间
+    if _has_role_in_range(user, RoleLevel.DEPT_DIRECTOR, RoleLevel.REGULATOR):
         or_conditions.append(
             Assessment.status == AssessmentStatus.pending_regulator_score.value
         )
 
-    # 3. 集团总监层：用户有集团总监及以上角色
-    has_group_role = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
-    if not has_group_role and user.secondary_roles:
-        for sr in user.secondary_roles:
-            if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
-                has_group_role = True
-                break
-    if has_group_role:
+    # 3. 集团层（集团总监及以上）
+    if _has_role_min(user, RoleLevel.GROUP_DIRECTOR):
         or_conditions.append(
             Assessment.status == AssessmentStatus.pending_group_score.value
         )
@@ -828,23 +840,13 @@ async def submit_score(
         if assessment.district_id not in district_ids:
             raise ValueError("无权限：只能评分本区域的考核项")
     elif score_level == ScoreLevel.regulator.value:
-        # 必须有监察主任及以上角色（主角色或附加角色）
-        has_regulator = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
-        if not has_regulator and user.secondary_roles:
-            for sr in user.secondary_roles:
-                if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
-                    has_regulator = True
-                    break
+        # 必须有规管层角色（部门总监/监察主任），不能越级
+        has_regulator = _has_role_in_range(user, RoleLevel.DEPT_DIRECTOR, RoleLevel.REGULATOR)
         if not has_regulator:
-            raise ValueError("无权限：需要监察主任及以上角色")
+            raise ValueError("无权限：需要规管层角色")
     elif score_level == ScoreLevel.group.value:
-        # 必须有集团总监及以上角色（主角色或附加角色）
-        has_group = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
-        if not has_group and user.secondary_roles:
-            for sr in user.secondary_roles:
-                if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
-                    has_group = True
-                    break
+        # 必须有集团总监及以上角色
+        has_group = _has_role_min(user, RoleLevel.GROUP_DIRECTOR)
         if not has_group:
             raise ValueError("无权限：需要集团总监及以上角色")
 
@@ -993,22 +995,10 @@ async def request_supplement(
         if assessment.district_id not in district_ids:
             raise ValueError("无权限：只能要求本区域考核项的补充")
     elif current_level == ScoreLevel.regulator.value:
-        has_regulator = (user.role_level and user.role_level >= RoleLevel.REGULATOR)
-        if not has_regulator and user.secondary_roles:
-            for sr in user.secondary_roles:
-                if (sr.get("role_level") or 0) >= RoleLevel.REGULATOR:
-                    has_regulator = True
-                    break
-        if not has_regulator:
-            raise ValueError("无权限：监察层评分只能由监察主任要求补充")
+        if not _has_role_in_range(user, RoleLevel.DEPT_DIRECTOR, RoleLevel.REGULATOR):
+            raise ValueError("无权限：规管层评分只能由规管层要求补充")
     elif current_level == ScoreLevel.group.value:
-        has_group = (user.role_level and user.role_level >= RoleLevel.GROUP_DIRECTOR)
-        if not has_group and user.secondary_roles:
-            for sr in user.secondary_roles:
-                if (sr.get("role_level") or 0) >= RoleLevel.GROUP_DIRECTOR:
-                    has_group = True
-                    break
-        if not has_group:
+        if not _has_role_min(user, RoleLevel.GROUP_DIRECTOR):
             raise ValueError("无权限：集团层评分只能由集团总监要求补充")
 
     # 创建补充请求
@@ -1465,3 +1455,69 @@ async def get_non_assessment_list(
     result = await db.execute(query)
     items = result.scalars().all()
     return total, items
+
+
+# ======================================================================
+# 异议处理
+# ======================================================================
+
+async def submit_appeal(
+    db: AsyncSession,
+    assessment_id: int,
+    user: User,
+    reason: str,
+) -> AssessmentAppeal:
+    """主办人发起异议"""
+    result = await db.execute(
+        select(Assessment)
+        .options(selectinload(Assessment.appeal))
+        .where(Assessment.id == assessment_id)
+    )
+    assessment = result.scalar_one_or_none()
+    if not assessment:
+        raise ValueError("考核项不存在")
+
+    # 权限：只能是主办人
+    if assessment.sponsor_id != user.id:
+        raise ValueError("无权限：只有主办人才能发起异议")
+
+    # 状态校验：必须在异议期
+    if assessment.status != AssessmentStatus.appeal_period.value:
+        raise ValueError("当前状态不可发起异议")
+
+    # 校验是否在异议期内
+    if assessment.appeal_deadline and datetime.utcnow() > assessment.appeal_deadline:
+        raise ValueError("异议期已过，无法发起异议")
+
+    # 不能重复发起
+    if assessment.appeal:
+        raise ValueError("已发起过异议，请勿重复提交")
+
+    # 创建异议记录
+    appeal = AssessmentAppeal(
+        assessment_id=assessment.id,
+        appellant_id=user.id,
+        reason=reason,
+        ai_status="pending",
+    )
+    db.add(appeal)
+    await db.flush()
+
+    # 更新考核状态
+    prev_status = assessment.status
+    assessment.status = AssessmentStatus.appealed.value
+    assessment.updated_at = datetime.utcnow()
+
+    # 操作日志
+    await add_operation_log(
+        db,
+        assessment_id=assessment.id,
+        work_item_id=assessment.work_item_id,
+        operator_id=user.id,
+        action="appeal",
+        detail=f"发起异议：{reason[:50]}，原状态：{prev_status}",
+    )
+
+    await db.commit()
+    await db.refresh(appeal)
+    return appeal

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Radio, Input, Button, Select, InputNumber, Space, Typography, Divider, message } from 'antd';
+import { Modal, Radio, Input, Button, Select, InputNumber, Space, Typography, Divider, message, Spin, Tag } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
-import { SCORE_TIERS } from '../../types';
-import type { AssessmentAttachment, ScoreParticipant } from '../../types';
+import { SCORE_TIERS, SCORE_LEVEL_LABELS } from '../../types';
+import type { AssessmentAttachment, ScoreParticipant, AssessmentDetail, AssessmentScore } from '../../types';
 import { assessmentApi, userApi } from '../../services/api';
 import AttachmentUpload from './AttachmentUpload';
 
@@ -34,15 +34,26 @@ const ScoreModal: React.FC<Props> = ({ open, assessmentId, workItemTitle, levelL
   const [attachments, setAttachments] = useState<AssessmentAttachment[]>([]);
   const [userOptions, setUserOptions] = useState<Array<{ id: number; real_name: string; username: string }>>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [previousScores, setPreviousScores] = useState<AssessmentScore[]>([]);
   let keySeed = React.useRef(0);
 
   useEffect(() => {
-    if (open) {
+    if (open && assessmentId) {
       setTotalScore(null);
       setOpinion('');
       setParticipants([]);
       setAttachments([]);
+      setPreviousScores([]);
       userApi.listBrief().then(setUserOptions).catch(() => {});
+      // 拉取详情获取历史评分记录
+      setDetailLoading(true);
+      assessmentApi.detail(assessmentId)
+        .then((detail: AssessmentDetail) => {
+          setPreviousScores(detail.scores || []);
+        })
+        .catch(() => {})
+        .finally(() => setDetailLoading(false));
     }
   }, [open, assessmentId]);
 
@@ -126,6 +137,53 @@ const ScoreModal: React.FC<Props> = ({ open, assessmentId, workItemTitle, levelL
       destroyOnClose
     >
       <div style={{ marginTop: 8 }}>
+        {/* 历史评分记录 */}
+        {previousScores.length > 0 && (
+          <>
+            <Text strong>历史评分</Text>
+            <div style={{ marginTop: 8, marginBottom: 8 }}>
+              <Spin spinning={detailLoading}>
+                {previousScores.map((s) => (
+                  <div
+                    key={s.id}
+                    style={{
+                      padding: '8px 12px',
+                      marginBottom: 6,
+                      background: '#fafafa',
+                      borderRadius: 4,
+                      border: '1px solid #eee',
+                    }}
+                  >
+                    <Space>
+                      <Tag color="blue">{SCORE_LEVEL_LABELS[s.level] || s.level}</Tag>
+                      <Text strong>{s.total_score} 分</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        评分人：{s.scorer_name || '-'}
+                      </Text>
+                      {s.submitted_at && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {new Date(s.submitted_at).toLocaleString('zh-CN', { hour12: false })}
+                        </Text>
+                      )}
+                    </Space>
+                    {s.opinion && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                        理由：{s.opinion}
+                      </div>
+                    )}
+                    {s.participants && s.participants.length > 0 && (
+                      <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
+                        参与人分配：{s.participants.map((p) => `${p.user_name || '-'}(${p.score}分)`).join('、')}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </Spin>
+            </div>
+            <Divider style={{ margin: '16px 0' }} />
+          </>
+        )}
+
         <Text strong>总分</Text>
         <div style={{ marginTop: 8 }}>
           <Radio.Group

@@ -22,7 +22,7 @@ import {
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import { useAuth } from './AuthProvider';
-import { ROLE_LABELS, ROLE_LEVELS, ROLE_LEVEL } from '../types';
+import { ROLE_LEVELS, ROLE_LEVEL, getRoleDisplayLabel } from '../types';
 import type { RoleType } from '../types';
 import { authApi } from '../services/api';
 
@@ -151,7 +151,7 @@ const MainLayout: React.FC = () => {
               <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
               <div>
                 <Text strong style={{ display: 'block', lineHeight: 1.2 }}>{user?.real_name || user?.username}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{ROLE_LABELS[user?.role as RoleType] || ''}</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>{getRoleDisplayLabel(user?.role_level, user?.role as RoleType)}</Text>
               </div>
             </Space>
           </Dropdown>

@@ -453,6 +453,12 @@ class SupplementSubmitRequest(BaseModel):
     attachments: List[AssessmentAttachmentBase] = []
 
 
+# ---- 异议提交 ----
+class AppealSubmitRequest(BaseModel):
+    reason: str
+    attachments: List[AssessmentAttachmentBase] = []
+
+
 class SupplementRequestOut(BaseModel):
     id: int
     assessment_id: int

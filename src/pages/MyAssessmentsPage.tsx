@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Typography, message } from 'antd';
-import { ReloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Select, Space, Tag, Typography, message, Modal, Form } from 'antd';
+import { ReloadOutlined, UploadOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../types';
@@ -27,6 +27,13 @@ const MyAssessmentsPage: React.FC = () => {
   // 补充凭证
   const [supplementAssessmentId, setSupplementAssessmentId] = useState<number | null>(null);
   const [supplementRequest, setSupplementRequest] = useState<SupplementRequest | null>(null);
+
+  // 发起异议
+  const [appealOpen, setAppealOpen] = useState(false);
+  const [appealTarget, setAppealTarget] = useState<AssessmentListItem | null>(null);
+  const [appealReason, setAppealReason] = useState('');
+  const [appealing, setAppealing] = useState(false);
+  const [form] = Form.useForm();
 
   const fetchData = async (p = page, ps = pageSize, kw = keyword, st = statusFilter) => {
     setLoading(true);
@@ -111,6 +118,22 @@ const MyAssessmentsPage: React.FC = () => {
               提交补充凭证
             </Button>
           )}
+          {record.status === 'appeal_period' && (
+            <Button
+              type="primary"
+              danger
+              size="small"
+              icon={<ExclamationCircleOutlined />}
+              onClick={() => {
+                setAppealTarget(record);
+                setAppealReason('');
+                form.resetFields();
+                setAppealOpen(true);
+              }}
+            >
+              发起异议
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -161,6 +184,49 @@ const MyAssessmentsPage: React.FC = () => {
         onCancel={() => { setSupplementRequest(null); setSupplementAssessmentId(null); }}
         onSuccess={() => { setSupplementRequest(null); setSupplementAssessmentId(null); fetchData(); }}
       />
+
+      <Modal
+        title="发起异议"
+        open={appealOpen}
+        onCancel={() => setAppealOpen(false)}
+        confirmLoading={appealing}
+        okText="提交异议"
+        okButtonProps={{ danger: true }}
+        onOk={async () => {
+          if (!appealTarget) return;
+          try {
+            await form.validateFields();
+          } catch {
+            return;
+          }
+          setAppealing(true);
+          try {
+            await assessmentApi.submitAppeal(appealTarget.id, { reason: appealReason });
+            message.success('异议已提交');
+            setAppealOpen(false);
+            fetchData();
+          } catch (e: any) {
+            message.error(e?.response?.data?.detail || '提交失败');
+          } finally {
+            setAppealing(false);
+          }
+        }}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="异议理由"
+            rules={[{ required: true, message: '请填写异议理由' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              value={appealReason}
+              onChange={(e) => setAppealReason(e.target.value)}
+              placeholder="请详细说明异议理由..."
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

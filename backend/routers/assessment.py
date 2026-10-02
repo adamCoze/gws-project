@@ -24,6 +24,7 @@ from schemas import (
     ScoreSubmitRequest,
     SupplementRequestCreate,
     SupplementSubmitRequest,
+    AppealSubmitRequest,
     SupplementRequestOut,
     NonAssessmentMarkRequest,
     NonAssessmentItemOut,
@@ -48,6 +49,7 @@ from services.assessment_service import (
     mark_non_assessment,
     revoke_non_assessment,
     get_non_assessment_list,
+    submit_appeal,
 )
 
 logger = logging.getLogger(__name__)
@@ -413,6 +415,26 @@ async def my_assessments_api(
         "page_size": page_size,
         "items": [AssessmentListItemOut.model_validate(item).model_dump() for item in items],
     }
+
+
+# ======================================================================
+# 异议
+# ======================================================================
+
+
+@router.post("/{id}/appeal", response_model=dict)
+async def submit_appeal_api(
+    id: int,
+    data: AppealSubmitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """主办人发起异议"""
+    try:
+        appeal = await submit_appeal(db, id, current_user, data.reason)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return SuccessResponse(success=True, message="异议已提交", data={"appeal_id": appeal.id})
 
 
 # ======================================================================

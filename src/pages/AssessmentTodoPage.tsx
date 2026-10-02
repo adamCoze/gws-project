@@ -75,7 +75,15 @@ const AssessmentTodoPage: React.FC = () => {
   };
 
   useEffect(() => {
+    // 初始加载：同时获取两个 tab 的总数
+    fetchConfirm(1, pageSize);
+    fetchScore(1, pageSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     setPage(1);
+    // tab 切换时重新加载当前 tab 的列表数据
     if (activeTab === 'confirm') fetchConfirm(1, pageSize);
     else fetchScore(1, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,7 +223,13 @@ const AssessmentTodoPage: React.FC = () => {
         items={[
           {
             key: 'confirm',
-            label: `待确认（${confirmTotal}）`,
+            label: (
+              <span>
+                待确认（
+                <span style={{ fontWeight: 'bold', color: '#ff4d4f' }}>{confirmTotal}</span>
+                ）
+              </span>
+            ),
             children: (
               <Table
                 rowKey="id"
@@ -235,7 +249,13 @@ const AssessmentTodoPage: React.FC = () => {
           },
           {
             key: 'score',
-            label: `待评分（${scoreTotal}）`,
+            label: (
+              <span>
+                待评分（
+                <span style={{ fontWeight: 'bold', color: '#ff4d4f' }}>{scoreTotal}</span>
+                ）
+              </span>
+            ),
             children: (
               <Table
                 rowKey="id"

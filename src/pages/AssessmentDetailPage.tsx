@@ -6,11 +6,27 @@ import {
   ASSESSMENT_STATUS_LABELS,
   ASSESSMENT_STATUS_COLORS,
   SCORE_LEVEL_LABELS,
+  OPERATION_ACTION_LABELS,
 } from '../types';
 import type { AssessmentAttachment, AssessmentDetail } from '../types';
 import { assessmentApi } from '../services/api';
 
 const { Title, Text, Paragraph } = Typography;
+
+/** 将操作日志 detail 中的英文状态、层级等替换为中文 */
+function translateDetail(detail: string): string {
+  let result = detail;
+  // 替换状态值
+  Object.entries(ASSESSMENT_STATUS_LABELS).forEach(([key, label]) => {
+    result = result.replaceAll(key, label);
+  });
+  // 替换评分层级
+  Object.entries(SCORE_LEVEL_LABELS).forEach(([key, label]) => {
+    result = result.replaceAll(`${key}层`, `${label}层`);
+    result = result.replaceAll(`（${key}层）`, `（${label}层）`);
+  });
+  return result;
+}
 
 /** 凭证展示：图片缩略图 + 文字凭证 */
 const AttachmentList: React.FC<{ attachments?: AssessmentAttachment[] }> = ({ attachments }) => {
@@ -209,13 +225,13 @@ const AssessmentDetailPage: React.FC = () => {
               children: (
                 <div>
                   <Space>
-                    <Text>{log.action}</Text>
+                    <Text strong>{OPERATION_ACTION_LABELS[log.action] || log.action}</Text>
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {log.operator_name || ''} · {fmt(log.created_at)}
                     </Text>
                   </Space>
                   {log.detail && (
-                    <div><Text type="secondary" style={{ fontSize: 12 }}>{log.detail}</Text></div>
+                    <div><Text type="secondary" style={{ fontSize: 12 }}>{translateDetail(log.detail)}</Text></div>
                   )}
                 </div>
               ),

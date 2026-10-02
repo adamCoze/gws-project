@@ -54,7 +54,26 @@ export const ROLE_LABELS: Record<string, string> = {
   staff: '专员',
   consultant: '顾问',
   intern: '顾问',
+  dept_director: '规管',
+  group_director: '规管',
 };
+
+/**
+ * 根据用户角色等级获取显示名称
+ * - >=5 (部门总监及以上)：规管
+ * - 4 (区总)：区域总监
+ * - 3 (经理)：经理
+ * - <=2 (专员及以下)：专员
+ */
+export function getRoleDisplayLabel(roleLevel?: number, role?: string): string {
+  if (roleLevel && roleLevel >= 5) return '规管';
+  if (roleLevel === 4) return '区域总监';
+  if (roleLevel === 3) return '经理';
+  if (roleLevel && roleLevel <= 2) return '专员';
+  // 降级：按 role 字符串映射
+  if (role) return ROLE_LABELS[role] || '';
+  return '';
+}
 
 // 向后兼容：旧代码通过 role 字符串获取等级
 // 新代码应直接使用 user.role_level 字段
@@ -260,8 +279,26 @@ export const ASSESSMENT_STATUS_COLORS: Record<string, string> = {
 export type ScoreLevel = 'district' | 'regulator' | 'group';
 export const SCORE_LEVEL_LABELS: Record<string, string> = {
   district: '区总评分',
-  regulator: '监察主任评分',
+  regulator: '规管评分',
   group: '集团总监评分',
+};
+
+// 操作日志动作类型中文映射
+export const OPERATION_ACTION_LABELS: Record<string, string> = {
+  initiate: '发起考核',
+  dept_confirm: '部门确认',
+  dept_reject: '部门退回',
+  district_score: '区总评分',
+  regulator_score: '规管评分',
+  group_score: '集团总监评分',
+  request_supplement: '要求补充凭证',
+  submit_supplement: '提交补充凭证',
+  mark_non_assessment: '标记非考核项',
+  revoke_non_assessment: '撤销非考核项',
+  appeal: '发起异议',
+  ai_review: 'AI审查',
+  ruling: '裁定',
+  cancel: '终止考核',
 };
 
 // 总分档位
