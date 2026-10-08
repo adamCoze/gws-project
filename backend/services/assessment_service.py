@@ -966,10 +966,9 @@ async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -
         assessment.status == AssessmentStatus.appeal_period.value
         and assessment.appeal_deadline
         and datetime.utcnow() > assessment.appeal_deadline
-        and not assessment.appeal  # 未提过异议
     ):
         assessment.status = AssessmentStatus.pending_ruling.value
-        # 操作日志（使用 system/0 表示系统自动操作）
+        # 操作日志
         log = AssessmentOperationLog(
             assessment_id=assessment.id,
             work_item_id=assessment.work_item_id,
@@ -983,12 +982,12 @@ async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -
 async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) -> None:
     """批量检查并自动流转异议期过期状态"""
     now = datetime.utcnow()
+    changed = False
     for a in assessments:
         if (
             a.status == AssessmentStatus.appeal_period.value
             and a.appeal_deadline
             and now > a.appeal_deadline
-            and not a.appeal
         ):
             a.status = AssessmentStatus.pending_ruling.value
             log = AssessmentOperationLog(
@@ -999,6 +998,9 @@ async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) 
                 detail="异议期已过，自动流转为待裁定状态",
             )
             db.add(log)
+            changed = True
+    if changed:
+        await db.flush()
 
 
 # ======================================================================
