@@ -50,6 +50,8 @@ from services.assessment_service import (
     revoke_non_assessment,
     get_non_assessment_list,
     submit_appeal,
+    get_all_assessments,
+    export_assessments_excel,
 )
 
 logger = logging.getLogger(__name__)
@@ -503,6 +505,88 @@ async def upload_attachment(
         "file_name": file.filename,
         "file_path": rel_path,
     }
+
+
+# ======================================================================
+# 管理员：全集团考核管理
+# ======================================================================
+
+@router.get("/admin/all")
+async def admin_all_assessments(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    month: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    district_id: Optional[int] = Query(None),
+    department_id: Optional[int] = Query(None),
+    keyword: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
+):
+    """全集团考核列表（需监察主任及以上权限）"""
+    total, items = await get_all_assessments(
+        db=db, page=page, page_size=page_size,
+        month=month, status=status,
+        district_id=district_id, department_id=department_id,
+        keyword=keyword,
+    )
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": [
+            {
+                "id": a.id,
+                "work_item_id": a.work_item_id,
+                "work_item_no": a.work_item.item_no if a.work_item else "",
+                "title": a.work_item.title if a.work_item else "",
+                "sponsor_id": a.sponsor_id,
+                "sponsor_name": a.sponsor.name if a.sponsor else "",
+                "department_id": a.department_id,
+                "department_name": a.department.name if a.department else "",
+                "district_id": a.district_id,
+                "district_name": a.district.name if a.district else "",
+                "status": a.status,
+                "initiated_at": a.initiated_at.isoformat() if a.initiated_at else None,
+                "scores": [
+                    {
+                        "level": s.level,
+                        "total_score": s.total_score,
+                    } for s in (a.scores or [])
+                ],
+            }
+            for a in items
+        ],
+    }
+
+
+@router.get("/admin/export")
+async def admin_export_assessments(
+    month: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    district_id: Optional[int] = Query(None),
+    department_id: Optional[int] = Query(None),
+    keyword: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
+):
+    """导出全集团考核 Excel（需监察主任及以上权限）"""
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    from datetime import datetime as dt
+
+    excel_data = await export_assessments_excel(
+        db=db,
+        month=month, status=status,
+        district_id=district_id, department_id=department_id,
+        keyword=keyword,
+    )
+    filename = f"考核项目_{month or '全部'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        BytesIO(excel_data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ======================================================================

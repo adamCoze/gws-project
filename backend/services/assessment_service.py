@@ -1570,3 +1570,171 @@ async def submit_appeal(
     await db.commit()
     await db.refresh(appeal)
     return appeal
+
+
+# ======================================================================
+# 管理员：全集团考核管理
+# ======================================================================
+
+async def get_all_assessments(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 20,
+    month: Optional[str] = None,
+    status: Optional[str] = None,
+    district_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> Tuple[int, List[Assessment]]:
+    """管理员获取全集团考核列表（按月、状态等筛选）"""
+    from sqlalchemy import text as sa_text
+
+    query = select(Assessment)
+
+    if month:
+        query = query.where(sa_text(
+            "strftime('%Y-%m', initiated_at) = :month"
+        ).params(month=month))
+    if status:
+        query = query.where(Assessment.status == status)
+    if district_id:
+        query = query.where(Assessment.district_id == district_id)
+    if department_id:
+        query = query.where(Assessment.department_id == department_id)
+    if keyword:
+        query = query.where(
+            Assessment.work_item.has(WorkItem.title.contains(keyword))
+        )
+
+    query = query.options(
+        selectinload(Assessment.work_item),
+        selectinload(Assessment.sponsor),
+        selectinload(Assessment.department),
+        selectinload(Assessment.district),
+        selectinload(Assessment.scores),
+    )
+
+    # count
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar()
+
+    query = query.order_by(Assessment.initiated_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
+    # 自动检查异议期过期
+    await _auto_expire_appeal_period_batch(db, items)
+
+    return total, items
+
+
+async def export_assessments_excel(
+    db: AsyncSession,
+    month: Optional[str] = None,
+    status: Optional[str] = None,
+    district_id: Optional[int] = None,
+    department_id: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> bytes:
+    """导出全集团考核 Excel"""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    from models import WorkItem, User, Department, District
+
+    # 查出所有数据（不分页）
+    total, _ = await get_all_assessments(
+        db=db, page=1, page_size=10000,
+        month=month, status=status,
+        district_id=district_id, department_id=department_id,
+        keyword=keyword,
+    )
+    # 重新查询一次（因为上面的会被分页截断）
+    _, items = await get_all_assessments(
+        db=db, page=1, page_size=max(total, 1),
+        month=month, status=status,
+        district_id=district_id, department_id=department_id,
+        keyword=keyword,
+    )
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "考核项目"
+
+    # 表头
+    headers = [
+        "序号", "工作项编号", "工作项标题", "主办人", "部门", "区域",
+        "发起时间", "状态", "区总评分", "规管评分", "集团总监评分", "考核分值",
+    ]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # 状态映射
+    from models import AssessmentStatus as AS
+    status_map = {
+        AS.pending_dept_confirm.value: "待部门确认",
+        AS.pending_district_score.value: "待区总评分",
+        AS.pending_regulator_score.value: "待规管评分",
+        AS.pending_group_score.value: "待集团总监评分",
+        AS.pending_supplement.value: "待补充凭证",
+        AS.appeal_period.value: "异议期",
+        AS.appealed.value: "已提异议",
+        AS.ai_reviewing.value: "AI审查中",
+        AS.pending_ruling.value: "待裁定",
+        AS.completed.value: "已完结",
+        AS.cancelled.value: "已终止",
+    }
+
+    for idx, a in enumerate(items, 1):
+        row = idx + 1
+        # 各层级评分
+        district_score_val = ""
+        regulator_score_val = ""
+        group_score_val = ""
+        final_score = ""
+        if a.scores:
+            for s in a.scores:
+                if s.level == ScoreLevel.DISTRICT.value:
+                    district_score_val = s.total_score
+                elif s.level == ScoreLevel.REGULATOR.value:
+                    regulator_score_val = s.total_score
+                elif s.level == ScoreLevel.GROUP.value:
+                    group_score_val = s.total_score
+            # 最终分：取最高层级评分
+            if group_score_val != "":
+                final_score = group_score_val
+            elif regulator_score_val != "":
+                final_score = regulator_score_val
+            elif district_score_val != "":
+                final_score = district_score_val
+
+        ws.cell(row=row, column=1, value=idx)
+        ws.cell(row=row, column=2, value=a.work_item.item_no if a.work_item else "")
+        ws.cell(row=row, column=3, value=a.work_item.title if a.work_item else "")
+        ws.cell(row=row, column=4, value=a.sponsor.name if a.sponsor else "")
+        ws.cell(row=row, column=5, value=a.department.name if a.department else "")
+        ws.cell(row=row, column=6, value=a.district.name if a.district else "")
+        ws.cell(row=row, column=7, value=a.initiated_at.strftime("%Y-%m-%d %H:%M") if a.initiated_at else "")
+        ws.cell(row=row, column=8, value=status_map.get(a.status, a.status))
+        ws.cell(row=row, column=9, value=district_score_val)
+        ws.cell(row=row, column=10, value=regulator_score_val)
+        ws.cell(row=row, column=11, value=group_score_val)
+        ws.cell(row=row, column=12, value=final_score)
+
+    # 调整列宽
+    col_widths = [6, 14, 35, 12, 14, 12, 18, 14, 10, 10, 12, 10]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()

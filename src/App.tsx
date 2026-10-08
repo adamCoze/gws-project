@@ -11,6 +11,7 @@ import DistrictManagementPage from './pages/admin/DistrictManagementPage';
 import EmailConfigPage from './pages/admin/EmailConfigPage';
 import EmailLogPage from './pages/admin/EmailLogPage';
 import WorkItemManagementPage from './pages/admin/WorkItemManagementPage';
+import AssessmentManagementPage from './pages/admin/AssessmentManagementPage';
 import StatusLogPage from './pages/admin/StatusLogPage';
 import PendingAssessmentPage from './pages/PendingAssessmentPage';
 import AssessmentTodoPage from './pages/AssessmentTodoPage';
@@ -130,6 +131,14 @@ const AppRoutes: React.FC = () => {
           element={
             <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
               <WorkItemManagementPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="admin/assessments"
+          element={
+            <ProtectedRoute minLevel={ROLE_LEVEL.REGULATOR}>
+              <AssessmentManagementPage />
             </ProtectedRoute>
           }
         />

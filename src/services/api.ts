@@ -218,4 +218,20 @@ export const assessmentApi = {
     });
     return res as unknown as { file_type: string; file_name: string; file_path: string };
   },
+  // 管理员：全集团考核列表
+  adminAll: async (params?: { page?: number; page_size?: number; month?: string; status?: string; district_id?: number; department_id?: number; keyword?: string }): Promise<{ items: any[]; total: number; page: number; page_size: number }> => {
+    const res = await api.get('/assessment/admin/all', { params });
+    return res as unknown as { items: any[]; total: number; page: number; page_size: number };
+  },
+  // 管理员：导出考核 Excel
+  adminExportUrl: (params?: { month?: string; status?: string; district_id?: number; department_id?: number; keyword?: string }) => {
+    const base = '/api/assessment/admin/export';
+    if (!params) return base;
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
+    });
+    const str = qs.toString();
+    return str ? `${base}?${str}` : base;
+  },
 };
