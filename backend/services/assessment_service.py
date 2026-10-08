@@ -762,7 +762,11 @@ async def get_to_score_list(
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
-    items = result.scalars().all()
+    items = list(result.scalars().all())
+
+    # 自动检查异议期是否过期
+    await _auto_expire_appeal_period_batch(db, items)
+
     return total, items
 
 
@@ -954,6 +958,45 @@ def _calculate_appeal_deadline(from_date: datetime) -> datetime:
         if workdays_found < 3:
             current += timedelta(days=1)
     return current
+
+
+async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -> None:
+    """检查并自动流转：异议期已过 → 待裁定"""
+    if (
+        assessment.status == AssessmentStatus.appeal_period.value
+        and assessment.appeal_deadline
+        and datetime.utcnow() > assessment.appeal_deadline
+        and not assessment.appeal  # 未提过异议
+    ):
+        assessment.status = AssessmentStatus.pending_ruling.value
+        # 操作日志
+        log = AssessmentOperationLog(
+            assessment_id=assessment.id,
+            operator_id=None,  # 系统自动
+            action="auto_expire_appeal",
+            detail="异议期已过，自动流转为待裁定状态",
+        )
+        db.add(log)
+
+
+async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) -> None:
+    """批量检查并自动流转异议期过期状态"""
+    now = datetime.utcnow()
+    for a in assessments:
+        if (
+            a.status == AssessmentStatus.appeal_period.value
+            and a.appeal_deadline
+            and now > a.appeal_deadline
+            and not a.appeal
+        ):
+            a.status = AssessmentStatus.pending_ruling.value
+            log = AssessmentOperationLog(
+                assessment_id=a.id,
+                operator_id=None,
+                action="auto_expire_appeal",
+                detail="异议期已过，自动流转为待裁定状态",
+            )
+            db.add(log)
 
 
 # ======================================================================
@@ -1151,6 +1194,9 @@ async def get_assessment_detail(
     if not assessment:
         return None
 
+    # 自动检查异议期是否过期
+    await _auto_expire_appeal_period(db, assessment)
+
     # 权限校验
     level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
@@ -1213,7 +1259,11 @@ async def get_my_assessments(
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     result = await db.execute(query)
-    items = result.scalars().all()
+    items = list(result.scalars().all())
+
+    # 自动检查异议期是否过期
+    await _auto_expire_appeal_period_batch(db, items)
+
     return total, items
 
 
@@ -1481,13 +1531,12 @@ async def submit_appeal(
     if assessment.sponsor_id != user.id:
         raise ValueError("无权限：只有主办人才能发起异议")
 
+    # 先自动检查异议期是否过期
+    await _auto_expire_appeal_period(db, assessment)
+
     # 状态校验：必须在异议期
     if assessment.status != AssessmentStatus.appeal_period.value:
         raise ValueError("当前状态不可发起异议")
-
-    # 校验是否在异议期内
-    if assessment.appeal_deadline and datetime.utcnow() > assessment.appeal_deadline:
-        raise ValueError("异议期已过，无法发起异议")
 
     # 不能重复发起
     if assessment.appeal:

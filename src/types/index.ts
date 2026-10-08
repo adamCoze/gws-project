@@ -296,6 +296,7 @@ export const OPERATION_ACTION_LABELS: Record<string, string> = {
   mark_non_assessment: '标记非考核项',
   revoke_non_assessment: '撤销非考核项',
   appeal: '发起异议',
+  auto_expire_appeal: '系统自动流转',
   ai_review: 'AI审查',
   ruling: '裁定',
   cancel: '终止考核',
