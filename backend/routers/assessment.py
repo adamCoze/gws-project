@@ -436,7 +436,11 @@ async def submit_appeal_api(
         appeal = await submit_appeal(db, id, current_user, data.reason)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return SuccessResponse(success=True, message="异议已提交", data={"appeal_id": appeal.id})
+    return {
+        "success": True,
+        "message": "异议已提交",
+        "appeal_id": appeal.id,
+    }
 
 
 # ======================================================================
