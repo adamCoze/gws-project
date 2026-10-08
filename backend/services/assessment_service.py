@@ -969,10 +969,11 @@ async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -
         and not assessment.appeal  # 未提过异议
     ):
         assessment.status = AssessmentStatus.pending_ruling.value
-        # 操作日志
+        # 操作日志（使用 system/0 表示系统自动操作）
         log = AssessmentOperationLog(
             assessment_id=assessment.id,
-            operator_id=None,  # 系统自动
+            work_item_id=assessment.work_item_id,
+            operator_id=1,  # 系统操作，记录为 admin
             action="auto_expire_appeal",
             detail="异议期已过，自动流转为待裁定状态",
         )
@@ -992,7 +993,8 @@ async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) 
             a.status = AssessmentStatus.pending_ruling.value
             log = AssessmentOperationLog(
                 assessment_id=a.id,
-                operator_id=None,
+                work_item_id=a.work_item_id,
+                operator_id=1,  # 系统操作，记录为 admin
                 action="auto_expire_appeal",
                 detail="异议期已过，自动流转为待裁定状态",
             )
