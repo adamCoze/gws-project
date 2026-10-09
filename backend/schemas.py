@@ -459,6 +459,61 @@ class AppealSubmitRequest(BaseModel):
     attachments: List[AssessmentAttachmentBase] = []
 
 
+# ---- 异议补充意见 ----
+class AppealCommentRequest(BaseModel):
+    content: str
+
+
+# ---- 最终裁定 ----
+class RulingSubmitRequest(BaseModel):
+    ruling_action: str  # maintain / adjust
+    adjusted_score: Optional[float] = None
+    comment: Optional[str] = None
+
+
+# ---- AI 审查意见 ----
+class AiOpinionOut(BaseModel):
+    id: int
+    bot_index: int
+    bot_name: Optional[str] = None
+    status: str  # pending/processing/completed/failed
+    opinion: Optional[str] = None
+    conclusion: Optional[str] = None  # maintain/review/undetermined
+    error_message: Optional[str] = None
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AppealOut(BaseModel):
+    id: int
+    assessment_id: int
+    appellant_id: int
+    appellant_name: Optional[str] = None
+    reason: str
+    regulator_comment: Optional[str] = None
+    group_director_comment: Optional[str] = None
+    ai_status: str
+    submitted_at: datetime
+    ruling_result: Optional[str] = None
+    ruled_by: Optional[int] = None
+    ruled_at: Optional[datetime] = None
+    ai_opinions: List[AiOpinionOut] = []
+    attachments: List[AssessmentAttachmentOut] = []
+
+    class Config:
+        from_attributes = True
+
+    @model_validator(mode='before')
+    @classmethod
+    def populate_fields(cls, data: Any) -> Any:
+        if hasattr(data, 'appellant') and data.appellant:
+            data.appellant_name = data.appellant.real_name or data.appellant.username
+        return data
+
+
 class SupplementRequestOut(BaseModel):
     id: int
     assessment_id: int
@@ -616,6 +671,7 @@ class AssessmentDetailOut(BaseModel):
     email_message_id: Optional[str] = None
     scores: List[AssessmentScoreOut] = []
     supplement_requests: List[SupplementRequestOut] = []
+    appeal: Optional["AppealOut"] = None
     operation_logs: List["OperationLogOut"] = []
 
     class Config:

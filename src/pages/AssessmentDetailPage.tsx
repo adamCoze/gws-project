@@ -1,15 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Descriptions, Tag, Timeline, Typography, Space, Button, Image, List, Empty, Spin, message } from 'antd';
-import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Tag, Timeline, Typography, Space, Button, Image, List, Empty, Spin, message, Modal, Input } from 'antd';
+import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined, CommentOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ASSESSMENT_STATUS_LABELS,
   ASSESSMENT_STATUS_COLORS,
   SCORE_LEVEL_LABELS,
   OPERATION_ACTION_LABELS,
+  ROLE_LEVELS,
 } from '../types';
 import type { AssessmentAttachment, AssessmentDetail } from '../types';
 import { assessmentApi } from '../services/api';
+import { useAuth } from '../components/AuthProvider';
+import AiOpinionCard, { AiNotConfiguredCard } from '../components/assessment/AiOpinionCard';
+import { parseRulingResult } from '../components/assessment/RulingModal';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -73,8 +77,16 @@ const AttachmentList: React.FC<{ attachments?: AssessmentAttachment[] }> = ({ at
 const AssessmentDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const userLevel = user?.role_level || ROLE_LEVELS[user?.role as string] || 0;
+  const canViewAi = userLevel >= ROLE_LEVELS.regulator;
   const [detail, setDetail] = useState<AssessmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // 补充意见弹窗
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentText, setCommentText] = useState('');
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
 
   const fetchDetail = async () => {
     if (!id) return;
@@ -86,6 +98,26 @@ const AssessmentDetailPage: React.FC = () => {
       message.error(e?.response?.data?.detail || '加载考核详情失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const submitComment = async () => {
+    if (!id) return;
+    if (!commentText.trim()) {
+      message.warning('请填写补充意见');
+      return;
+    }
+    setCommentSubmitting(true);
+    try {
+      await assessmentApi.submitAppealComment(Number(id), commentText.trim());
+      message.success('补充意见已提交');
+      setCommentOpen(false);
+      setCommentText('');
+      fetchDetail();
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '提交失败');
+    } finally {
+      setCommentSubmitting(false);
     }
   };
 
@@ -184,6 +216,105 @@ const AssessmentDetailPage: React.FC = () => {
         )}
       </Card>
 
+      {detail.appeal && (
+        <Card
+          title="异议与裁定"
+          size="small"
+          style={{ marginBottom: 16 }}
+          extra={
+            canViewAi &&
+            (detail.status === 'appealed' ||
+              detail.status === 'ai_reviewing' ||
+              detail.status === 'pending_ruling') && (
+              <Button size="small" icon={<CommentOutlined />} onClick={() => setCommentOpen(true)}>
+                提交补充意见
+              </Button>
+            )
+          }
+        >
+          {(() => {
+            const appeal = detail.appeal!;
+            const ruling = parseRulingResult(appeal.ruling_result);
+            return (
+              <div>
+                <Space style={{ marginBottom: 8 }} wrap>
+                  <Tag color="red">员工异议</Tag>
+                  <Text strong>{appeal.appellant_name || `异议人 #${appeal.appellant_id}`}</Text>
+                  <Text type="secondary" style={{ fontSize: 12 }}>{fmt(appeal.submitted_at)}</Text>
+                </Space>
+                <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{appeal.reason}</Paragraph>
+                {appeal.attachments && appeal.attachments.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>异议凭证：</Text>
+                    <AttachmentList attachments={appeal.attachments} />
+                  </div>
+                )}
+
+                {canViewAi && appeal.ai_status !== 'hidden' && (
+                  <div style={{ margin: '12px 0' }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                      AI 中立审查意见（仅监察主任及以上可见）：
+                    </Text>
+                    {appeal.ai_status === 'not_configured' && <AiNotConfiguredCard />}
+                    {appeal.ai_opinions &&
+                      appeal.ai_opinions.map((op) => <AiOpinionCard key={op.id} opinion={op} />)}
+                  </div>
+                )}
+
+                {(appeal.regulator_comment || appeal.group_director_comment) && (
+                  <div style={{ margin: '12px 0' }}>
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>
+                      补充意见：
+                    </Text>
+                    {appeal.regulator_comment && (
+                      <Paragraph style={{ marginBottom: 4 }}>
+                        <Tag color="blue">规管</Tag>
+                        {appeal.regulator_comment}
+                      </Paragraph>
+                    )}
+                    {appeal.group_director_comment && (
+                      <Paragraph style={{ marginBottom: 4 }}>
+                        <Tag color="purple">集团总监</Tag>
+                        {appeal.group_director_comment}
+                      </Paragraph>
+                    )}
+                  </div>
+                )}
+
+                {ruling && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '8px 12px',
+                      background: '#f6ffed',
+                      border: '1px solid #b7eb8f',
+                      borderRadius: 6,
+                    }}
+                  >
+                    <Space wrap>
+                      <Tag color="success" style={{ fontSize: 14 }}>最终裁定</Tag>
+                      {ruling.action === 'maintain' ? (
+                        <Text strong>维持原评分（{ruling.original_score ?? '-'} 分）</Text>
+                      ) : (
+                        <Text strong>
+                          调整分数：{ruling.original_score ?? '-'} 分 → {ruling.adjusted_score ?? '-'} 分
+                        </Text>
+                      )}
+                      <Text type="secondary" style={{ fontSize: 12 }}>{fmt(appeal.ruled_at)}</Text>
+                    </Space>
+                    {ruling.comment && (
+                      <Paragraph style={{ marginTop: 6, marginBottom: 0, whiteSpace: 'pre-wrap' }}>
+                        裁定意见：{ruling.comment}
+                      </Paragraph>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </Card>
+      )}
+
       {detail.supplement_requests && detail.supplement_requests.length > 0 && (
         <Card title="补充凭证记录" size="small" style={{ marginBottom: 16 }}>
           <List
@@ -239,6 +370,26 @@ const AssessmentDetailPage: React.FC = () => {
           />
         </Card>
       )}
+      {/* 补充意见弹窗 */}
+      <Modal
+        title="提交补充意见"
+        open={commentOpen}
+        onCancel={() => setCommentOpen(false)}
+        onOk={submitComment}
+        confirmLoading={commentSubmitting}
+        okText="提交"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Input.TextArea
+          rows={4}
+          placeholder="填写对本次异议的补充意见（将随 AI 审查意见一并供裁定参考）"
+          value={commentText}
+          onChange={(e) => setCommentText(e.target.value)}
+          maxLength={500}
+          showCount
+        />
+      </Modal>
     </div>
   );
 };

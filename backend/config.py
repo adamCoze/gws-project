@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     COZE_BOT_ID: str = os.getenv("COZE_BOT_ID", "")
     COZE_API_BASE: str = os.getenv("COZE_API_BASE", "https://api.coze.cn")
 
+    # Coze AI (考核异议中立审查，3个不同基础模型并行)
+    APPEAL_REVIEW_BOT_1_ID: str = os.getenv("APPEAL_REVIEW_BOT_1_ID", "")
+    APPEAL_REVIEW_BOT_1_NAME: str = os.getenv("APPEAL_REVIEW_BOT_1_NAME", "模型一")
+    APPEAL_REVIEW_BOT_2_ID: str = os.getenv("APPEAL_REVIEW_BOT_2_ID", "")
+    APPEAL_REVIEW_BOT_2_NAME: str = os.getenv("APPEAL_REVIEW_BOT_2_NAME", "模型二")
+    APPEAL_REVIEW_BOT_3_ID: str = os.getenv("APPEAL_REVIEW_BOT_3_ID", "")
+    APPEAL_REVIEW_BOT_3_NAME: str = os.getenv("APPEAL_REVIEW_BOT_3_NAME", "模型三")
+
     # 邮件检查间隔（分钟）
     EMAIL_CHECK_INTERVAL: int = int(os.getenv("EMAIL_CHECK_INTERVAL", "5"))
 

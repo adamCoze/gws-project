@@ -120,6 +120,43 @@ def _get_email_body(msg) -> str:
     return body
 
 
+_EMAIL_BODY_STORAGE_LIMIT = 20000  # 存储正文最大字符数
+
+
+def _html_to_text(html: str) -> str:
+    """HTML 转纯文本（简单实现，不依赖第三方库）"""
+    if not html:
+        return ""
+    # 去 script/style
+    text = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S | re.I)
+    # 块级标签与换行标签转换行
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</(p|div|tr|li|h[1-6]|table|blockquote)>", "\n", text, flags=re.I)
+    # 去其余标签
+    text = re.sub(r"<[^>]+>", "", text)
+    # 常见实体
+    for entity, char in [("&nbsp;", " "), ("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&#39;", "'")]:
+        text = text.replace(entity, char)
+    # 压缩空白行
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+    return text.strip()
+
+
+def _extract_body_for_storage(body: str) -> Optional[str]:
+    """将邮件正文转为可存纯文本：HTML去标签，截断2万字符"""
+    if not body:
+        return None
+    text = body
+    # 判断是否 HTML：包含标签即转换
+    if re.search(r"<[a-zA-Z][^>]*>", text):
+        text = _html_to_text(text)
+    if not text:
+        return None
+    if len(text) > _EMAIL_BODY_STORAGE_LIMIT:
+        text = text[:_EMAIL_BODY_STORAGE_LIMIT]
+    return text
+
+
 def _extract_forwarded_content(body: str) -> str:
     """提取转发邮件中的完整原始邮件内容"""
     if not body:
@@ -582,6 +619,7 @@ async def _process_email(
                 subject=subject,
                 from_addr=from_addr,
                 received_at=datetime.utcnow(),
+                body=_extract_body_for_storage(body),
                 process_result=EmailProcessResult.SUCCESS,
                 retry_count=retry_count,
                 error_message=None,

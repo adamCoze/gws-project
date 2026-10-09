@@ -296,9 +296,13 @@ export const OPERATION_ACTION_LABELS: Record<string, string> = {
   mark_non_assessment: '标记非考核项',
   revoke_non_assessment: '撤销非考核项',
   appeal: '发起异议',
+  appeal_submit: '提交异议',
+  appeal_comment: '异议补充意见',
   auto_expire_appeal: '系统自动流转',
+  auto_advance_appeal: '系统自动流转',
   ai_review: 'AI审查',
-  ruling: '裁定',
+  ai_review_complete: 'AI审查完成',
+  ruling: '最终裁定',
   cancel: '终止考核',
 };
 
@@ -413,7 +417,53 @@ export interface AssessmentDetail {
   scores?: AssessmentScore[];
   supplement_requests?: SupplementRequest[];
   attachments?: AssessmentAttachment[];
+  appeal?: AppealInfo | null;
   operation_logs?: AssessmentOperationLog[];
+}
+
+// AI 审查意见
+export interface AiOpinion {
+  id: number;
+  bot_index: number;
+  bot_name?: string | null;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  opinion?: string | null;
+  conclusion?: 'maintain' | 'review' | 'undetermined' | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+}
+
+// 异议信息
+export interface AppealInfo {
+  id: number;
+  assessment_id: number;
+  appellant_id: number;
+  appellant_name?: string | null;
+  reason: string;
+  regulator_comment?: string | null;
+  group_director_comment?: string | null;
+  ai_status: 'pending' | 'processing' | 'completed' | 'failed' | 'not_configured' | 'hidden';
+  submitted_at?: string | null;
+  ruling_result?: string | null;
+  ruled_at?: string | null;
+  ai_opinions?: AiOpinion[];
+  attachments?: AssessmentAttachment[];
+}
+
+// AI 结论标签
+export const AI_CONCLUSION_LABELS: Record<string, string> = {
+  maintain: '建议维持原评分',
+  review: '建议复核',
+  undetermined: '无法判断',
+};
+
+// 裁定结果（ruling_result JSON）
+export interface RulingResult {
+  action: 'maintain' | 'adjust';
+  comment?: string | null;
+  original_score?: number | null;
+  adjusted_score?: number | null;
 }
 
 export interface AssessmentOperationLog {

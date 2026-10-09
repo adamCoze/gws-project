@@ -199,6 +199,17 @@ export const assessmentApi = {
   // 发起异议
   submitAppeal: (id: number, data: { reason: string; attachments?: AssessmentAttachment[] }) =>
     api.post(`/assessment/${id}/appeal`, data),
+  // 异议补充意见（监察/集团总监）
+  submitAppealComment: (id: number, content: string) =>
+    api.post(`/assessment/${id}/appeal-comment`, { content }),
+  // 待裁定列表
+  toRuling: async (params?: { page?: number; page_size?: number }): Promise<{ items: AssessmentListItem[]; total: number }> => {
+    const res = await api.get('/assessment/to-ruling', { params });
+    return res as unknown as { items: AssessmentListItem[]; total: number };
+  },
+  // 最终裁定
+  submitRuling: (id: number, data: { ruling_action: 'maintain' | 'adjust'; adjusted_score?: number; comment?: string }) =>
+    api.post(`/assessment/${id}/ruling`, data),
   // 详情
   detail: async (id: number): Promise<AssessmentDetail> => {
     const res = await api.get(`/assessment/${id}`);

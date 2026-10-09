@@ -221,6 +221,14 @@ async def _run_migrations():
                 logger.info("迁移 v8：已按完整版模型重建考核模块全部表")
                 new_version = 8
 
+            # ---- v9: email_logs 表新增 body 列（邮件正文明文留存，供AI审查回溯工作项全貌）----
+            if current_version < 9:
+                if not await _column_exists("email_logs", "body"):
+                    await session.execute(text("ALTER TABLE email_logs ADD COLUMN body TEXT"))
+                    logger.info("迁移 v9：email_logs 表新增 body 字段")
+                # 新表 assessment_appeal_ai_opinions 由启动时 create_all 自动创建
+                new_version = 9
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

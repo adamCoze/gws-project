@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Space, Tag, Tabs, Modal, Input, Typography, message } from 'antd';
-import { CheckOutlined, CloseOutlined, EditOutlined, FileSearchOutlined, ReloadOutlined } from '@ant-design/icons';
+import { CheckOutlined, CloseOutlined, EditOutlined, FileSearchOutlined, AuditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
-import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS, SCORE_LEVEL_LABELS } from '../types';
+import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS, SCORE_LEVEL_LABELS, ROLE_LEVELS } from '../types';
 import type { AssessmentListItem } from '../types';
 import { assessmentApi } from '../services/api';
+import { useAuth } from '../components/AuthProvider';
 import ScoreModal from '../components/assessment/ScoreModal';
+import RulingModal from '../components/assessment/RulingModal';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -15,15 +17,21 @@ const { TextArea } = Input;
  * 待我处理：
  * - 待确认 tab（部门总监）：确认/驳回考核
  * - 待评分 tab（区总/监察主任/集团总监）：评分、要求补充凭证
+ * - 待裁定 tab（集团总监及以上）：最终裁定（代录总裁线下结果）
  */
 const AssessmentTodoPage: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'confirm' | 'score'>('confirm');
+  const { user } = useAuth();
+  const userLevel = user?.role_level || ROLE_LEVELS[user?.role as string] || 0;
+  const canRuling = userLevel >= ROLE_LEVELS.group_director;
+  const [activeTab, setActiveTab] = useState<'confirm' | 'score' | 'ruling'>('confirm');
 
   const [confirmItems, setConfirmItems] = useState<AssessmentListItem[]>([]);
   const [confirmTotal, setConfirmTotal] = useState(0);
   const [scoreItems, setScoreItems] = useState<AssessmentListItem[]>([]);
   const [scoreTotal, setScoreTotal] = useState(0);
+  const [rulingItems, setRulingItems] = useState<AssessmentListItem[]>([]);
+  const [rulingTotal, setRulingTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
@@ -35,6 +43,9 @@ const AssessmentTodoPage: React.FC = () => {
 
   // 评分弹窗
   const [scoreTarget, setScoreTarget] = useState<AssessmentListItem | null>(null);
+
+  // 裁定弹窗
+  const [rulingTarget, setRulingTarget] = useState<AssessmentListItem | null>(null);
 
   // 补充凭证请求弹窗
   const [supplementTarget, setSupplementTarget] = useState<AssessmentListItem | null>(null);
@@ -69,15 +80,31 @@ const AssessmentTodoPage: React.FC = () => {
     }
   };
 
+  const fetchRuling = async (p = 1, ps = pageSize) => {
+    setLoading(true);
+    try {
+      const res = await assessmentApi.toRuling({ page: p, page_size: ps });
+      setRulingItems(res.items);
+      setRulingTotal(res.total);
+    } catch {
+      setRulingItems([]);
+      setRulingTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const refresh = () => {
     if (activeTab === 'confirm') fetchConfirm(page, pageSize);
+    else if (activeTab === 'ruling') fetchRuling(page, pageSize);
     else fetchScore(page, pageSize);
   };
 
   useEffect(() => {
-    // 初始加载：同时获取两个 tab 的总数
+    // 初始加载：同时获取各 tab 的总数
     fetchConfirm(1, pageSize);
     fetchScore(1, pageSize);
+    if (canRuling) fetchRuling(1, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -85,6 +112,7 @@ const AssessmentTodoPage: React.FC = () => {
     setPage(1);
     // tab 切换时重新加载当前 tab 的列表数据
     if (activeTab === 'confirm') fetchConfirm(1, pageSize);
+    else if (activeTab === 'ruling') fetchRuling(1, pageSize);
     else fetchScore(1, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
@@ -210,6 +238,21 @@ const AssessmentTodoPage: React.FC = () => {
     },
   ];
 
+  const rulingColumns: ColumnsType<AssessmentListItem> = [
+    ...baseColumns.slice(0, 5),
+    ...baseColumns.slice(5),
+    {
+      title: '操作',
+      key: 'actions',
+      width: 160,
+      render: (_, record) => (
+        <Button type="primary" size="small" icon={<AuditOutlined />} onClick={() => setRulingTarget(record)}>
+          最终裁定
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div>
       <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
@@ -273,6 +316,36 @@ const AssessmentTodoPage: React.FC = () => {
               />
             ),
           },
+          ...(canRuling
+            ? [
+                {
+                  key: 'ruling',
+                  label: (
+                    <span>
+                      待裁定（
+                      <span style={{ fontWeight: 'bold', color: '#ff4d4f' }}>{rulingTotal}</span>
+                      ）
+                    </span>
+                  ),
+                  children: (
+                    <Table
+                      rowKey="id"
+                      columns={rulingColumns}
+                      dataSource={rulingItems}
+                      loading={loading}
+                      pagination={{
+                        current: page,
+                        pageSize,
+                        total: rulingTotal,
+                        showSizeChanger: true,
+                        showTotal: (t) => `共 ${t} 条`,
+                        onChange: (p, ps) => { setPage(p); setPageSize(ps); fetchRuling(p, ps); },
+                      }}
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
 
@@ -284,6 +357,14 @@ const AssessmentTodoPage: React.FC = () => {
         levelLabel={scoreTarget?.current_level ? SCORE_LEVEL_LABELS[scoreTarget.current_level] : undefined}
         onCancel={() => setScoreTarget(null)}
         onSuccess={() => { setScoreTarget(null); fetchScore(page, pageSize); }}
+      />
+
+      {/* 裁定弹窗 */}
+      <RulingModal
+        open={!!rulingTarget}
+        target={rulingTarget}
+        onCancel={() => setRulingTarget(null)}
+        onSuccess={() => { setRulingTarget(null); fetchRuling(page, pageSize); }}
       />
 
       {/* 驳回弹窗 */}

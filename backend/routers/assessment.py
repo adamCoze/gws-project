@@ -25,6 +25,8 @@ from schemas import (
     SupplementRequestCreate,
     SupplementSubmitRequest,
     AppealSubmitRequest,
+    AppealCommentRequest,
+    RulingSubmitRequest,
     SupplementRequestOut,
     NonAssessmentMarkRequest,
     NonAssessmentItemOut,
@@ -50,6 +52,9 @@ from services.assessment_service import (
     revoke_non_assessment,
     get_non_assessment_list,
     submit_appeal,
+    submit_appeal_comment,
+    get_pending_ruling_list,
+    submit_ruling,
     get_all_assessments,
     export_assessments_excel,
 )
@@ -443,6 +448,76 @@ async def submit_appeal_api(
     }
 
 
+@router.post("/{id}/appeal-comment", response_model=dict)
+async def submit_appeal_comment_api(
+    id: int,
+    data: AppealCommentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """监察主任/集团总监对异议提交补充意见（作为裁定参考材料）"""
+    try:
+        appeal = await submit_appeal_comment(db, id, current_user, data.content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "success": True,
+        "message": "补充意见已提交",
+        "appeal_id": appeal.id,
+    }
+
+
+# ======================================================================
+# 最终裁定
+# ======================================================================
+
+
+@router.get("/to-ruling", response_model=dict)
+async def list_to_ruling(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleLevel.GROUP_DIRECTOR)),
+):
+    """待裁定列表（集团总监及以上）"""
+    total, items = await get_pending_ruling_list(db, current_user, page, page_size)
+    rows = []
+    for item in items:
+        out = AssessmentListItemOut.model_validate(item).model_dump()
+        out["has_appeal"] = item.appeal is not None  # 区分：有异议待裁定 / 异议期满自动流转
+        rows.append(out)
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "items": rows,
+    }
+
+
+@router.post("/{id}/ruling", response_model=SuccessResponse)
+async def submit_ruling_api(
+    id: int,
+    data: RulingSubmitRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """最终裁定（集团总监及以上，代录总裁线下裁定结果）
+
+    - maintain：维持原评分
+    - adjust：调整分数（档位内）+ 裁定意见必填
+    """
+    try:
+        await submit_ruling(
+            db, id, current_user,
+            ruling_action=data.ruling_action,
+            adjusted_score=data.adjusted_score,
+            comment=data.comment or "",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return SuccessResponse(success=True, message="裁定完成，考核已完结")
+
+
 # ======================================================================
 # 考核详情
 # ======================================================================
@@ -458,6 +533,18 @@ async def get_assessment_api(
     assessment = await get_assessment_detail(db, id, current_user)
     if not assessment:
         raise HTTPException(status_code=404, detail="考核记录不存在或无权限查看")
+
+    # 脱敏：AI审查意见、各层补充意见仅监察主任及以上可见；员工仅见自己的异议理由与裁定结果
+    from models import RoleLevel as _RL
+    from services.assessment_service import _get_effective_role_level
+    if _get_effective_role_level(current_user) < _RL.REGULATOR and assessment.appeal:
+        db.expunge(assessment)  # 脱离session，改动不会写库
+        appeal = assessment.appeal
+        appeal.ai_opinions = []
+        appeal.ai_status = "hidden"
+        appeal.regulator_comment = None
+        appeal.group_director_comment = None
+
     return assessment
 
 

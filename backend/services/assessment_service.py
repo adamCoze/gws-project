@@ -1,4 +1,5 @@
 """考核业务逻辑服务"""
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
@@ -766,6 +767,7 @@ async def get_to_score_list(
 
     # 自动检查异议期是否过期
     await _auto_expire_appeal_period_batch(db, items)
+    await _auto_advance_appeal_progress_batch(db, items)
 
     return total, items
 
@@ -1003,6 +1005,63 @@ async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) 
         await db.flush()
 
 
+_AI_REVIEW_STUCK_MINUTES = 15  # AI审查后台任务丢失判定阈值
+
+
+async def _auto_advance_appeal_progress(db: AsyncSession, assessment: Assessment) -> None:
+    """兜底检查：异议已提交但 AI 审查流程未推进（后台任务丢失/进程重启）时自动流转
+
+    独立查询 appeal，不依赖 relationship 加载，避免异步 lazy load 错误。
+    - status=appealed 且 AI 已结束（completed/failed/not_configured）→ 待裁定
+    - status=appealed/ai_reviewing 且提交后超过阈值仍未结束 → 待裁定（AI意见各自保留状态）
+    """
+    if assessment.status not in (
+        AssessmentStatus.appealed.value,
+        AssessmentStatus.ai_reviewing.value,
+    ):
+        return
+
+    result = await db.execute(
+        select(AssessmentAppeal).where(AssessmentAppeal.assessment_id == assessment.id)
+    )
+    appeal = result.scalar_one_or_none()
+    if not appeal:
+        # 无异议记录却停在 appealed/ai_reviewing：异常数据，直接待裁定
+        assessment.status = AssessmentStatus.pending_ruling.value
+        assessment.updated_at = datetime.utcnow()
+        await db.flush()
+        return
+
+    ai_done = appeal.ai_status in ("completed", "failed", "not_configured")
+    timed_out = (
+        appeal.submitted_at
+        and (datetime.utcnow() - appeal.submitted_at).total_seconds() > _AI_REVIEW_STUCK_MINUTES * 60
+    )
+    if ai_done or timed_out:
+        prev = assessment.status
+        assessment.status = AssessmentStatus.pending_ruling.value
+        assessment.updated_at = datetime.utcnow()
+        log = AssessmentOperationLog(
+            assessment_id=assessment.id,
+            work_item_id=assessment.work_item_id,
+            operator_id=1,
+            action="auto_advance_appeal",
+            detail=f"AI审查流程结束（原状态：{prev}），自动流转为待裁定状态",
+        )
+        db.add(log)
+        await db.flush()
+
+
+async def _auto_advance_appeal_progress_batch(db: AsyncSession, assessments: list) -> None:
+    """批量执行 _auto_advance_appeal_progress（仅处理相关状态）"""
+    targets = [a for a in assessments if a.status in (
+        AssessmentStatus.appealed.value,
+        AssessmentStatus.ai_reviewing.value,
+    )]
+    for a in targets:
+        await _auto_advance_appeal_progress(db, a)
+
+
 # ======================================================================
 # 补充凭证
 # ======================================================================
@@ -1190,6 +1249,9 @@ async def get_assessment_detail(
             selectinload(Assessment.supplement_requests).selectinload(AssessmentSupplementRequest.requester),
             selectinload(Assessment.supplement_requests).selectinload(AssessmentSupplementRequest.supplier),
             selectinload(Assessment.supplement_requests).selectinload(AssessmentSupplementRequest.attachments).selectinload(AssessmentAttachment.uploader),
+            selectinload(Assessment.appeal).selectinload(AssessmentAppeal.ai_opinions),
+            selectinload(Assessment.appeal).selectinload(AssessmentAppeal.attachments).selectinload(AssessmentAttachment.uploader),
+            selectinload(Assessment.appeal).selectinload(AssessmentAppeal.appellant),
             selectinload(Assessment.operation_logs).selectinload(AssessmentOperationLog.operator),
         )
         .where(Assessment.id == assessment_id)
@@ -1200,6 +1262,8 @@ async def get_assessment_detail(
 
     # 自动检查异议期是否过期
     await _auto_expire_appeal_period(db, assessment)
+    # 兜底：AI审查流程卡住时自动流转
+    await _auto_advance_appeal_progress(db, assessment)
 
     # 权限校验
     level = _get_effective_role_level(user)
@@ -1267,6 +1331,7 @@ async def get_my_assessments(
 
     # 自动检查异议期是否过期
     await _auto_expire_appeal_period_batch(db, items)
+    await _auto_advance_appeal_progress_batch(db, items)
 
     return total, items
 
@@ -1573,7 +1638,191 @@ async def submit_appeal(
 
     await db.commit()
     await db.refresh(appeal)
+
+    # 触发 AI 中立审查（后台任务：无配置模型时直接流转待裁定）
+    import asyncio
+    from services.appeal_ai_service import run_appeal_ai_review
+    asyncio.create_task(run_appeal_ai_review(appeal.id))
+
     return appeal
+
+
+async def submit_appeal_comment(
+    db: AsyncSession,
+    assessment_id: int,
+    user: User,
+    content: str,
+) -> AssessmentAppeal:
+    """监察主任/集团总监对异议提交补充意见（作为裁定参考材料）"""
+    result = await db.execute(
+        select(Assessment)
+        .options(selectinload(Assessment.appeal))
+        .where(Assessment.id == assessment_id)
+    )
+    assessment = result.scalar_one_or_none()
+    if not assessment:
+        raise ValueError("考核项不存在")
+
+    level = _get_effective_role_level(user)
+    if level < RoleLevel.REGULATOR:
+        raise ValueError("无权限：需要监察主任及以上角色")
+
+    appeal = assessment.appeal
+    if not appeal:
+        raise ValueError("该考核项暂无异议")
+
+    if assessment.status not in (
+        AssessmentStatus.appealed.value,
+        AssessmentStatus.ai_reviewing.value,
+        AssessmentStatus.pending_ruling.value,
+    ):
+        raise ValueError("当前状态不可提交补充意见")
+
+    if level >= RoleLevel.GROUP_DIRECTOR:
+        appeal.group_director_comment = content
+        comment_type = "集团总监补充意见"
+    else:
+        appeal.regulator_comment = content
+        comment_type = "监察主任补充意见"
+
+    await add_operation_log(
+        db,
+        assessment_id=assessment.id,
+        work_item_id=assessment.work_item_id,
+        operator_id=user.id,
+        action="appeal_comment",
+        detail=f"{comment_type}：{content[:50]}",
+    )
+
+    await db.commit()
+    await db.refresh(appeal)
+    return appeal
+
+
+# ======================================================================
+# 最终裁定
+# ======================================================================
+
+
+async def get_pending_ruling_list(
+    db: AsyncSession,
+    user: User,
+    page: int = 1,
+    page_size: int = 20,
+) -> Tuple[int, List[Assessment]]:
+    """待裁定列表：集团总监及以上，状态=待裁定"""
+    level = _get_effective_role_level(user)
+    if level < RoleLevel.GROUP_DIRECTOR:
+        return 0, []
+
+    query = select(Assessment).where(
+        Assessment.status == AssessmentStatus.pending_ruling.value
+    )
+
+    query = query.options(
+        selectinload(Assessment.work_item),
+        selectinload(Assessment.sponsor),
+        selectinload(Assessment.department),
+        selectinload(Assessment.district),
+        selectinload(Assessment.appeal),
+    )
+
+    count_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = count_result.scalar()
+
+    query = query.order_by(Assessment.initiated_at.desc())
+    query = query.offset((page - 1) * page_size).limit(page_size)
+
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
+    return total, items
+
+
+async def submit_ruling(
+    db: AsyncSession,
+    assessment_id: int,
+    user: User,
+    ruling_action: str,
+    adjusted_score: Optional[float],
+    comment: str,
+) -> Assessment:
+    """最终裁定：维持原评分 / 调整分数（集团总监及以上，代录总裁线下裁定结果）"""
+    result = await db.execute(
+        select(Assessment)
+        .options(
+            selectinload(Assessment.appeal),
+            selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
+        )
+        .where(Assessment.id == assessment_id)
+    )
+    assessment = result.scalar_one_or_none()
+    if not assessment:
+        raise ValueError("考核项不存在")
+
+    level = _get_effective_role_level(user)
+    if level < RoleLevel.GROUP_DIRECTOR:
+        raise ValueError("无权限：需要集团总监及以上角色")
+
+    if assessment.status != AssessmentStatus.pending_ruling.value:
+        raise ValueError("当前状态不可裁定")
+
+    if ruling_action not in ("maintain", "adjust"):
+        raise ValueError("裁定操作无效")
+
+    ruling_data = {
+        "action": ruling_action,
+        "comment": comment,
+        "original_score": assessment.final_score,
+    }
+
+    if ruling_action == "adjust":
+        if adjusted_score is None:
+            raise ValueError("调整分数不能为空")
+        if adjusted_score not in ScoreTier.TIERS:
+            raise ValueError("调整分数必须是档位值：1/5/10/20/30")
+        if not comment or not comment.strip():
+            raise ValueError("调整分数时必须填写裁定意见")
+        adjusted_score = float(adjusted_score)
+
+        old_final = assessment.final_score or 0
+        assessment.final_score = adjusted_score
+        ruling_data["adjusted_score"] = adjusted_score
+
+        # 集团总监层评分的参与人分摊按比例缩放
+        if old_final > 0:
+            ratio = adjusted_score / old_final
+            for score in assessment.scores:
+                if score.level == ScoreLevel.group.value and score.participants:
+                    for p in score.participants:
+                        p.score = round(p.score * ratio, 2)
+
+    # 更新异议记录（异议期自动流转的没有 appeal）
+    appeal = assessment.appeal
+    if appeal:
+        appeal.ruling_result = json.dumps(ruling_data, ensure_ascii=False)
+        appeal.ruled_by = user.id
+        appeal.ruled_at = datetime.utcnow()
+
+    assessment.status = AssessmentStatus.completed.value
+    assessment.completed_at = datetime.utcnow()
+    assessment.updated_at = datetime.utcnow()
+
+    action_text = "维持原评分" if ruling_action == "maintain" else f"调整分数为 {adjusted_score}"
+    await add_operation_log(
+        db,
+        assessment_id=assessment.id,
+        work_item_id=assessment.work_item_id,
+        operator_id=user.id,
+        action="ruling",
+        detail=f"最终裁定：{action_text}"
+        + (f"，意见：{comment[:50]}" if comment else "")
+        + "（代录总裁线下裁定结果）",
+    )
+
+    await db.commit()
+    await db.refresh(assessment)
+    return assessment
 
 
 # ======================================================================
@@ -1629,6 +1878,7 @@ async def get_all_assessments(
 
     # 自动检查异议期过期
     await _auto_expire_appeal_period_batch(db, items)
+    await _auto_advance_appeal_progress_batch(db, items)
 
     return total, items
 

@@ -230,6 +230,7 @@ class EmailLog(Base):
     subject = Column(String(500), nullable=True)
     from_addr = Column(String(200), nullable=True)
     received_at = Column(DateTime, default=datetime.utcnow)
+    body = Column(Text, nullable=True)  # 邮件正文明文（HTML转纯文本，截断2万字符），用于AI审查回溯工作项全貌
     process_result = Column(String(20), nullable=False)
     retry_count = Column(Integer, default=0, nullable=False)
     error_message = Column(Text, nullable=True)
@@ -459,7 +460,7 @@ class AssessmentAppeal(Base):
     regulator_comment = Column(Text, nullable=True)
     group_director_comment = Column(Text, nullable=True)
     ai_opinion = Column(Text, nullable=True)
-    ai_status = Column(String(20), default="pending", nullable=False)  # pending/processing/completed/failed
+    ai_status = Column(String(20), default="pending", nullable=False)  # pending/processing/completed/failed/not_configured
     submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     ai_completed_at = Column(DateTime, nullable=True)
     ruling_result = Column(Text, nullable=True)
@@ -471,6 +472,25 @@ class AssessmentAppeal(Base):
     appellant = relationship("User", foreign_keys=[appellant_id])
     ruler = relationship("User", foreign_keys=[ruled_by])
     attachments = relationship("AssessmentAttachment", back_populates="appeal", cascade="all, delete-orphan")
+    ai_opinions = relationship("AssessmentAppealAiOpinion", back_populates="appeal", cascade="all, delete-orphan")
+
+
+class AssessmentAppealAiOpinion(Base):
+    """异议AI审查意见（3-bot并行，每条记录对应一个模型的审查结果）"""
+    __tablename__ = "assessment_appeal_ai_opinions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    appeal_id = Column(Integer, ForeignKey("assessment_appeals.id"), nullable=False, index=True)
+    bot_index = Column(Integer, nullable=False)  # 槽位 1/2/3
+    bot_name = Column(String(100), nullable=True)  # 卡片显示名（如 GLM-4.7）
+    status = Column(String(20), default="pending", nullable=False)  # pending/processing/completed/failed
+    opinion = Column(Text, nullable=True)  # 审查意见全文
+    conclusion = Column(String(20), nullable=True)  # maintain/review/undetermined
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    appeal = relationship("AssessmentAppeal", back_populates="ai_opinions")
 
 
 class NonAssessmentItem(Base):
