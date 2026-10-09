@@ -85,16 +85,17 @@ async def _build_review_input(db: AsyncSession, assessment: Assessment, appeal: 
             elif no_body_count > 0:
                 parts.append(f"（注：其中 {no_body_count} 封历史邮件正文未留存，仅显示主题）")
             for i, log in enumerate(logs, 1):
-                line = f"{i}. [{log.received_at.strftime('%Y-%m-%d')}] 主题：{log.subject or '无'}"
+                recv = log.received_at.strftime('%Y-%m-%d') if log.received_at else '日期未知'
+                line = f"{i}. [{recv}] 主题：{log.subject or '无'}"
                 if log.body:
                     line += f"\n正文：{log.body[:3000]}"
                 parts.append(line)
 
     # 3. 各层评分记录
     parts.append("\n【各层评分记录】")
-    for score in sorted(assessment.scores, key=lambda s: s.created_at):
+    for score in sorted(assessment.scores, key=lambda s: s.created_at or datetime.utcnow()):
         level_map = {"district": "区总", "regulator": "监察主任", "group": "集团总监"}
-        line = f"- {level_map.get(score.level, score.level)}：{score.score} 分"
+        line = f"- {level_map.get(score.level, score.level)}：{score.total_score} 分"
         if score.opinion:
             line += f"，理由：{score.opinion}"
         parts.append(line)

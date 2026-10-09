@@ -789,39 +789,12 @@ class PaginatedResponse(BaseModel):
 
 
 # ---- 异议 ----
+# 注意：AppealOut / AppealCommentRequest 定义在文件中部（含 ai_opinions / ruling_result 等完整字段），
+# 此处仅保留 AppealCreateRequest，勿重复定义以免覆盖。
 
 class AppealCreateRequest(BaseModel):
     reason: str
     attachments: List[AssessmentAttachmentBase] = []
-
-
-class AppealOut(BaseModel):
-    id: int
-    assessment_id: int
-    appellant_id: int
-    appellant_name: Optional[str] = None
-    reason: str
-    regulator_comment: Optional[str] = None
-    group_director_comment: Optional[str] = None
-    ai_opinion: Optional[str] = None
-    ai_status: str = "pending"
-    submitted_at: datetime
-    ai_completed_at: Optional[datetime] = None
-    attachments: List[AssessmentAttachmentOut] = []
-
-    class Config:
-        from_attributes = True
-
-    @model_validator(mode='before')
-    @classmethod
-    def populate_appellant_name(cls, data: Any) -> Any:
-        if hasattr(data, 'appellant') and data.appellant:
-            data.appellant_name = data.appellant.real_name or data.appellant.username
-        return data
-
-
-class AppealCommentRequest(BaseModel):
-    comment: str
 
 
 # 前向引用解析
