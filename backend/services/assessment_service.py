@@ -1973,7 +1973,7 @@ async def export_assessments_excel(
         ws.cell(row=row, column=1, value=idx)
         ws.cell(row=row, column=2, value=f"WI-{a.work_item_id}" if a.work_item_id else "")
         ws.cell(row=row, column=3, value=a.work_item.title if a.work_item else "")
-        ws.cell(row=row, column=4, value=a.sponsor.name if a.sponsor else "")
+        ws.cell(row=row, column=4, value=(a.sponsor.real_name or a.sponsor.username) if a.sponsor else "")
         ws.cell(row=row, column=5, value=a.department.name if a.department else "")
         ws.cell(row=row, column=6, value=a.district.name if a.district else "")
         ws.cell(row=row, column=7, value=a.initiated_at.strftime("%Y-%m-%d %H:%M") if a.initiated_at else "")

@@ -632,7 +632,7 @@ async def admin_all_assessments(
                 "work_item_no": f"WI-{a.work_item_id}" if a.work_item_id else "",
                 "title": a.work_item.title if a.work_item else "",
                 "sponsor_id": a.sponsor_id,
-                "sponsor_name": a.sponsor.name if a.sponsor else "",
+                "sponsor_name": (a.sponsor.real_name or a.sponsor.username) if a.sponsor else "",
                 "department_id": a.department_id,
                 "department_name": a.department.name if a.department else "",
                 "district_id": a.district_id,
