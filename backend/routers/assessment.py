@@ -1,6 +1,7 @@
 """考核模块路由"""
 import logging
 from typing import Optional, List, Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
