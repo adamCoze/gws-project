@@ -673,10 +673,13 @@ async def admin_export_assessments(
         keyword=keyword,
     )
     filename = f"考核项目_{month or '全部'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    # HTTP header 仅支持 ASCII，中文文件名用 RFC 5987 编码（filename* 优先，浏览器解码显示中文）
+    ascii_fallback = f"assessments_{month or 'all'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    quoted_utf8 = quote(filename)
     return StreamingResponse(
         BytesIO(excel_data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quoted_utf8}"},
     )
 
 
