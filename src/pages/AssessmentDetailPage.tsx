@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Descriptions, Tag, Timeline, Typography, Space, Button, Image, List, Empty, Spin, message, Modal, Input } from 'antd';
-import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined, CommentOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Tag, Timeline, Typography, Space, Button, Image, List, Empty, Spin, message, Modal, Input, Form } from 'antd';
+import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined, CommentOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ASSESSMENT_STATUS_LABELS,
@@ -88,6 +88,32 @@ const AssessmentDetailPage: React.FC = () => {
   const [commentText, setCommentText] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
 
+  // 发起异议弹窗
+  const [appealOpen, setAppealOpen] = useState(false);
+  const [appealReason, setAppealReason] = useState('');
+  const [appealing, setAppealing] = useState(false);
+  const [appealForm] = Form.useForm();
+
+  const submitAppeal = async () => {
+    if (!id) return;
+    if (!appealReason.trim()) {
+      message.warning('请填写异议理由');
+      return;
+    }
+    setAppealing(true);
+    try {
+      await assessmentApi.submitAppeal(Number(id), { reason: appealReason.trim() });
+      message.success('异议已提交');
+      setAppealOpen(false);
+      setAppealReason('');
+      fetchDetail();
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '提交失败');
+    } finally {
+      setAppealing(false);
+    }
+  };
+
   const fetchDetail = async () => {
     if (!id) return;
     setLoading(true);
@@ -145,6 +171,16 @@ const AssessmentDetailPage: React.FC = () => {
         </Tag>
         {detail.final_score !== null && detail.final_score !== undefined && (
           <Tag color="blue" style={{ fontSize: 14 }}>最终得分：{detail.final_score}</Tag>
+        )}
+        {detail.status === 'appeal_period' && !detail.appeal && (
+          <Button
+            type="primary"
+            danger
+            icon={<ExclamationCircleOutlined />}
+            onClick={() => { setAppealOpen(true); setAppealReason(''); appealForm.resetFields(); }}
+          >
+            发起异议
+          </Button>
         )}
       </Space>
 
@@ -370,6 +406,39 @@ const AssessmentDetailPage: React.FC = () => {
           />
         </Card>
       )}
+      {/* 发起异议弹窗 */}
+      <Modal
+        title="发起异议"
+        open={appealOpen}
+        onCancel={() => setAppealOpen(false)}
+        onOk={submitAppeal}
+        confirmLoading={appealing}
+        okText="提交异议"
+        okButtonProps={{ danger: true }}
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Paragraph type="secondary" style={{ fontSize: 13 }}>
+          对「{detail.work_item_title}」的评分结果提出异议。异议提交后将进入 AI 中立审查与最终裁定流程，请如实说明理由。
+        </Paragraph>
+        <Form form={appealForm} layout="vertical">
+          <Form.Item
+            name="reason"
+            label="异议理由"
+            rules={[{ required: true, message: '请填写异议理由' }]}
+          >
+            <Input.TextArea
+              rows={4}
+              value={appealReason}
+              onChange={(e) => setAppealReason(e.target.value)}
+              placeholder="请详细说明异议理由..."
+              maxLength={1000}
+              showCount
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
       {/* 补充意见弹窗 */}
       <Modal
         title="提交补充意见"

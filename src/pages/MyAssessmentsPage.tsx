@@ -22,7 +22,20 @@ const MyAssessmentsPage: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [monthFilter, setMonthFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+
+  // 近13个月选项（按发起时间筛选）
+  const monthOptions = React.useMemo(() => {
+    const now = new Date();
+    const list: { value: string; label: string }[] = [];
+    for (let i = 0; i < 13; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      list.push({ value, label: `${d.getFullYear()}年${d.getMonth() + 1}月` });
+    }
+    return list;
+  }, []);
 
   // 补充凭证
   const [supplementAssessmentId, setSupplementAssessmentId] = useState<number | null>(null);
@@ -35,7 +48,7 @@ const MyAssessmentsPage: React.FC = () => {
   const [appealing, setAppealing] = useState(false);
   const [form] = Form.useForm();
 
-  const fetchData = async (p = page, ps = pageSize, kw = keyword, st = statusFilter) => {
+  const fetchData = async (p = page, ps = pageSize, kw = keyword, st = statusFilter, mo = monthFilter) => {
     setLoading(true);
     try {
       const res = await assessmentApi.myAssessments({
@@ -43,6 +56,7 @@ const MyAssessmentsPage: React.FC = () => {
         page_size: ps,
         keyword: kw || undefined,
         status: st,
+        month: mo,
       });
       setItems(res.items);
       setTotal(res.total);
@@ -154,8 +168,16 @@ const MyAssessmentsPage: React.FC = () => {
             allowClear
             style={{ width: 180 }}
             value={statusFilter}
-            onChange={(v) => { setStatusFilter(v); setPage(1); fetchData(1, pageSize, keyword, v); }}
+            onChange={(v) => { setStatusFilter(v); setPage(1); fetchData(1, pageSize, keyword, v, monthFilter); }}
             options={Object.entries(ASSESSMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+          />
+          <Select
+            placeholder="月份筛选（按发起时间）"
+            allowClear
+            style={{ width: 190 }}
+            value={monthFilter}
+            onChange={(v) => { setMonthFilter(v); setPage(1); fetchData(1, pageSize, keyword, statusFilter, v); }}
+            options={monthOptions}
           />
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>

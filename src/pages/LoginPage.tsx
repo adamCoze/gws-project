@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Card, Typography, message, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import type { LoginRequest } from '../types';
@@ -10,7 +9,6 @@ const { Title, Text } = Typography;
 
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
   const { login } = useAuth();
 
   const onFinish = async (values: LoginRequest) => {
@@ -19,12 +17,13 @@ const LoginPage: React.FC = () => {
       const res = await authApi.login(values);
       const { access_token, user } = res as any;
       login(access_token, user);
-      message.success('登录成功');
-      const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/dashboard'; navigate(redirectUrl);
+      // 整页跳转（而非 SPA navigate）：确保 AuthProvider 从 localStorage 重新初始化，
+      // 彻底避免登录成功后路由守卫读到旧状态被踢回登录页的问题
+      const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
+      window.location.replace(redirectUrl);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '登录失败，请检查用户名和密码');
-    } finally {
       setLoading(false);
     }
   };
