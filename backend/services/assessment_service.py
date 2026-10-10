@@ -1956,11 +1956,11 @@ async def export_assessments_excel(
         final_score = ""
         if a.scores:
             for s in a.scores:
-                if s.level == ScoreLevel.DISTRICT.value:
+                if s.level == ScoreLevel.district.value:
                     district_score_val = s.total_score
-                elif s.level == ScoreLevel.REGULATOR.value:
+                elif s.level == ScoreLevel.regulator.value:
                     regulator_score_val = s.total_score
-                elif s.level == ScoreLevel.GROUP.value:
+                elif s.level == ScoreLevel.group.value:
                     group_score_val = s.total_score
             # 最终分：取最高层级评分
             if group_score_val != "":
