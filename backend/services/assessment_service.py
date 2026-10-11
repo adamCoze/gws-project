@@ -1789,13 +1789,15 @@ async def submit_ruling(
         assessment.final_score = adjusted_score
         ruling_data["adjusted_score"] = adjusted_score
 
-        # 集团总监层评分的参与人分摊按比例缩放
+        # 集团总监层评分的参与人分摊按比例缩放，并同步更新该层总分（裁定即最终集团层评分）
         if old_final > 0:
             ratio = adjusted_score / old_final
             for score in assessment.scores:
-                if score.level == ScoreLevel.group.value and score.participants:
-                    for p in score.participants:
-                        p.score = round(p.score * ratio, 2)
+                if score.level == ScoreLevel.group.value:
+                    score.total_score = adjusted_score
+                    if score.participants:
+                        for p in score.participants:
+                            p.score = round(p.score * ratio, 2)
 
     # 更新异议记录（异议期自动流转的没有 appeal）
     appeal = assessment.appeal
@@ -1962,8 +1964,10 @@ async def export_assessments_excel(
                     regulator_score_val = s.total_score
                 elif s.level == ScoreLevel.group.value:
                     group_score_val = s.total_score
-            # 最终分：取最高层级评分
-            if group_score_val != "":
+            # 最终分：优先取裁定后的 final_score（调整分数裁定会更新它），无则回退最高层级评分
+            if a.final_score is not None:
+                final_score = a.final_score
+            elif group_score_val != "":
                 final_score = group_score_val
             elif regulator_score_val != "":
                 final_score = regulator_score_val

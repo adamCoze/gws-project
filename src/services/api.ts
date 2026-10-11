@@ -22,7 +22,10 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+      // 已在登录页时不再跳转，避免生成 /login?redirect=%2Flogin 这种自指链接形成登录死循环
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search);
+      }
     }
     return Promise.reject(error);
   }

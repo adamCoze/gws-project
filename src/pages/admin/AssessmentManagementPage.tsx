@@ -125,8 +125,12 @@ const AssessmentManagementPage: React.FC = () => {
   };
 
   const getFinalScore = (record: any) => {
+    // 优先取裁定后的最终分（调整分数裁定会更新 final_score）
+    if (record.final_score !== null && record.final_score !== undefined) {
+      return record.final_score;
+    }
     const scores = record.scores || [];
-    // 按优先级取：group > regulator > district
+    // 回退：按优先级取 group > regulator > district
     const group = scores.find((s: any) => s.level === 'group');
     if (group) return group.total_score;
     const regulator = scores.find((s: any) => s.level === 'regulator');

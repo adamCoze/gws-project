@@ -536,15 +536,18 @@ async def get_assessment_api(
         raise HTTPException(status_code=404, detail="考核记录不存在或无权限查看")
 
     # 脱敏：AI审查意见、各层补充意见仅监察主任及以上可见；员工仅见自己的异议理由与裁定结果
+    # 注意：必须先序列化为 pydantic 副本再修改——直接改 ORM 对象会被 get_db 请求结束时
+    # 的 session.commit() 持久化，把 hidden/清空值写进数据库（已发生过数据损坏）
     from models import RoleLevel as _RL
     from services.assessment_service import _get_effective_role_level
     if _get_effective_role_level(current_user) < _RL.REGULATOR and assessment.appeal:
-        db.expunge(assessment)  # 脱离session，改动不会写库
-        appeal = assessment.appeal
-        appeal.ai_opinions = []
-        appeal.ai_status = "hidden"
-        appeal.regulator_comment = None
-        appeal.group_director_comment = None
+        detail = AssessmentDetailOut.model_validate(assessment)
+        if detail.appeal:
+            detail.appeal.ai_opinions = []
+            detail.appeal.ai_status = "hidden"
+            detail.appeal.regulator_comment = None
+            detail.appeal.group_director_comment = None
+        return detail
 
     return assessment
 
@@ -640,6 +643,7 @@ async def admin_all_assessments(
                 "district_name": a.district.name if a.district else "",
                 "status": a.status,
                 "initiated_at": a.initiated_at.isoformat() if a.initiated_at else None,
+                "final_score": a.final_score,
                 "scores": [
                     {
                         "level": s.level,

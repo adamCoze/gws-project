@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Form, Input, Button, Card, Typography, message, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
+import { Navigate } from 'react-router-dom';
 import { authApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
 import type { LoginRequest } from '../types';
@@ -9,7 +10,12 @@ const { Title, Text } = Typography;
 
 const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
+
+  // 已登录用户直接进入系统（防止 /login 循环）
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   const onFinish = async (values: LoginRequest) => {
     setLoading(true);
@@ -19,7 +25,9 @@ const LoginPage: React.FC = () => {
       login(access_token, user);
       // 整页跳转（而非 SPA navigate）：确保 AuthProvider 从 localStorage 重新初始化，
       // 彻底避免登录成功后路由守卫读到旧状态被踢回登录页的问题
-      const redirectUrl = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
+      const raw = new URLSearchParams(window.location.search).get('redirect') || '';
+      // 净化 redirect：必须以 / 开头且不能指向 /login 自身，否则会形成登录死循环
+      const redirectUrl = raw.startsWith('/') && raw !== '/login' ? raw : '/dashboard';
       window.location.replace(redirectUrl);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
