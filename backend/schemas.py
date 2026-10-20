@@ -2,7 +2,7 @@
 from datetime import datetime, date
 from typing import Optional, List, Any
 
-from pydantic import BaseModel, EmailStr, model_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 
 from models import RoleType, WorkItemStatus, WorkItemType, EmailProcessResult
 
@@ -675,7 +675,13 @@ class AssessmentDetailOut(BaseModel):
     completed_at: Optional[datetime] = None
     has_email: bool = False
     email_message_id: Optional[str] = None
-    no_objection_confirmations: List[int] = []   # 已确认无异议的user_id列表
+    no_objection_confirmations: List[int] = []   # 已确认无异议的user_id列表（旧数据NULL容错转[]）
+
+    @field_validator("no_objection_confirmations", mode="before")
+    @classmethod
+    def _none_to_empty_list(cls, v):
+        return [] if v is None else v
+
     no_objection_names: List[str] = []           # 已确认无异议人员姓名
     can_appeal: bool = False                     # 当前用户是否可发起异议/确认无异议
     current_user_confirmed: bool = False         # 当前用户是否已确认无异议

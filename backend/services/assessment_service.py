@@ -790,17 +790,21 @@ def _get_appeal_eligible_user_ids(assessment: Assessment) -> set:
 
 
 def _calc_my_score(assessment: Assessment, user_id: int) -> Optional[float]:
-    """当前用户在该考核中最新评分层里自己的分摊分（完结后即集团层/裁定后分摊）"""
-    my_layers = []
-    for s in assessment.scores:
-        for p in s.participants:
-            if p.user_id == user_id:
-                my_layers.append((s.submitted_at, p.score))
-                break
-    if not my_layers:
+    """当前用户在考核当前生效评分层（最新提交层；完结后即集团层/裁定后分摊）的分摊分。
+
+    注意取层口径：以"考核最新提交的评分层"为准，而不是"该用户出现过的最新层"。
+    若最终层参与人中没有该用户，说明其未被分配得分，返回 None。
+    """
+    if not assessment.scores:
         return None
-    my_layers.sort(key=lambda x: x[0])
-    return my_layers[-1][1]
+    latest_layer = max(
+        assessment.scores,
+        key=lambda s: s.submitted_at or datetime.min,
+    )
+    for p in latest_layer.participants:
+        if p.user_id == user_id:
+            return p.score
+    return None
 
 
 def _can_user_appeal(assessment: Assessment, user_id: int) -> bool:

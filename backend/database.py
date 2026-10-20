@@ -233,10 +233,23 @@ async def _run_migrations():
             if current_version < 10:
                 if not await _column_exists("assessments", "no_objection_confirmations"):
                     await session.execute(text(
-                        "ALTER TABLE assessments ADD COLUMN no_objection_confirmations TEXT"
+                        "ALTER TABLE assessments ADD COLUMN no_objection_confirmations TEXT DEFAULT '[]'"
                     ))
                     logger.info("迁移 v10：assessments 表新增 no_objection_confirmations 字段")
                 new_version = 10
+
+            # ---- v11: 存量数据 no_objection_confirmations NULL → '[]' ----
+            if current_version < 11:
+                result = await session.execute(text(
+                    "SELECT COUNT(*) FROM assessments WHERE no_objection_confirmations IS NULL"
+                ))
+                null_count = result.scalar() or 0
+                if null_count > 0:
+                    await session.execute(text(
+                        "UPDATE assessments SET no_objection_confirmations = '[]' WHERE no_objection_confirmations IS NULL"
+                    ))
+                    logger.info(f"迁移 v11：{null_count} 条 assessments 记录 no_objection_confirmations 置为 '[]'")
+                new_version = 11
 
             # 更新迁移版本
             if new_version > current_version:
