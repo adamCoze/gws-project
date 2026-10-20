@@ -343,6 +343,7 @@ class Assessment(Base):
     skip_regulator_score = Column(Boolean, default=False, nullable=False)
     appeal_deadline = Column(DateTime, nullable=True, index=True)
     final_score = Column(Float, nullable=True)  # 最终得分（集团总监总分）
+    no_objection_confirmations = Column(JSON, default=list, nullable=False)  # 已确认无异议的user_id列表
     initiated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     completed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

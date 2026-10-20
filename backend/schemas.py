@@ -218,6 +218,7 @@ class WorkItemOut(WorkItemBase):
     updated_at: datetime
     department: Optional[DepartmentOut] = None
     assignee: Optional[UserOut] = None
+    sponsor: Optional[UserOut] = None
     status_logs: List[StatusChangeLogOut] = []
 
     class Config:
@@ -605,6 +606,11 @@ class AssessmentListItemOut(BaseModel):
     appeal_deadline: Optional[datetime] = None
     initiated_at: datetime
     has_email: bool = False
+    my_score: Optional[float] = None      # 当前用户最新评分层中自己的分摊分
+    is_sponsor: bool = False              # 当前用户是否主办人
+    can_appeal: bool = False              # 当前用户是否可发起异议/确认无异议
+    no_objection_confirmed: bool = False  # 当前用户是否已确认无异议
+    no_objection_names: Optional[str] = None  # 已确认无异议人员名单（顿号分隔）
 
     class Config:
         from_attributes = True
@@ -633,7 +639,7 @@ class AssessmentListItemOut(BaseModel):
             AssessmentStatus.appealed.value: "已提异议",
             AssessmentStatus.ai_reviewing.value: "AI审查中",
             AssessmentStatus.pending_ruling.value: "待裁定",
-            AssessmentStatus.completed.value: "已完结",
+            AssessmentStatus.completed.value: "已裁定",
             AssessmentStatus.cancelled.value: "已终止",
         }
         if hasattr(data, 'status'):
@@ -669,6 +675,10 @@ class AssessmentDetailOut(BaseModel):
     completed_at: Optional[datetime] = None
     has_email: bool = False
     email_message_id: Optional[str] = None
+    no_objection_confirmations: List[int] = []   # 已确认无异议的user_id列表
+    no_objection_names: List[str] = []           # 已确认无异议人员姓名
+    can_appeal: bool = False                     # 当前用户是否可发起异议/确认无异议
+    current_user_confirmed: bool = False         # 当前用户是否已确认无异议
     scores: List[AssessmentScoreOut] = []
     supplement_requests: List[SupplementRequestOut] = []
     appeal: Optional["AppealOut"] = None
@@ -704,7 +714,7 @@ class AssessmentDetailOut(BaseModel):
             AssessmentStatus.appealed.value: "已提异议",
             AssessmentStatus.ai_reviewing.value: "AI审查中",
             AssessmentStatus.pending_ruling.value: "待裁定",
-            AssessmentStatus.completed.value: "已完结",
+            AssessmentStatus.completed.value: "已裁定",
             AssessmentStatus.cancelled.value: "已终止",
         }
         if hasattr(data, 'status'):

@@ -188,6 +188,7 @@ export interface WorkItem {
   updated_at: string;
   department?: Department;
   assignee?: User;
+  sponsor?: User;
   status_logs?: StatusChangeLog[];
 }
 
@@ -257,7 +258,7 @@ export const ASSESSMENT_STATUS_LABELS: Record<string, string> = {
   appealed: '已提异议',
   ai_reviewing: 'AI审查中',
   pending_ruling: '待裁定',
-  completed: '已完结',
+  completed: '已裁定',
   cancelled: '已终止',
 };
 
@@ -300,6 +301,8 @@ export const OPERATION_ACTION_LABELS: Record<string, string> = {
   appeal_comment: '异议补充意见',
   auto_expire_appeal: '系统自动流转',
   auto_advance_appeal: '系统自动流转',
+  no_objection: '确认无异议',
+  no_objection_complete: '全员无异议完结',
   ai_review: 'AI审查',
   ai_review_complete: 'AI审查完成',
   ruling: '最终裁定',
@@ -385,8 +388,15 @@ export interface AssessmentListItem {
   sponsor_name?: string | null;
   initiator_name?: string | null;
   final_score?: number | null;
+  appeal_deadline?: string | null;
   initiated_at?: string | null;
   completed_at?: string | null;
+  // 无异议确认相关
+  my_score?: number | null;            // 我在最新评分层的分摊分
+  is_sponsor?: boolean;                // 我是否主办人
+  can_appeal?: boolean;                // 我此刻可否发起异议/确认无异议
+  no_objection_confirmed?: boolean;    // 我是否已确认无异议
+  no_objection_names?: string | null;  // 已确认无异议人员名单
 }
 
 // 考核详情
@@ -414,6 +424,11 @@ export interface AssessmentDetail {
   completed_at?: string | null;
   has_email?: boolean;
   email_url?: string | null;
+  // 无异议确认相关
+  no_objection_confirmations?: number[];  // 已确认无异议的user_id
+  no_objection_names?: string[];          // 已确认无异议人员姓名
+  can_appeal?: boolean;                   // 我此刻可否发起异议/确认无异议
+  current_user_confirmed?: boolean;       // 我是否已确认无异议
   scores?: AssessmentScore[];
   supplement_requests?: SupplementRequest[];
   attachments?: AssessmentAttachment[];

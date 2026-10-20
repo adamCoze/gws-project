@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Typography, message, Modal, Form } from 'antd';
-import { ReloadOutlined, UploadOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, UploadOutlined, ExclamationCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../types';
@@ -11,8 +11,8 @@ import SupplementSubmitModal from '../components/assessment/SupplementSubmitModa
 const { Text } = Typography;
 
 /**
- * 我的考核：我作为责任人的考核列表，含状态与最终得分；
- * 状态为「待补充凭证」时可直接提交补充凭证。
+ * 我的考核：我主办或我参与的考核列表，含状态、考核总分与我的得分；
+ * 异议期内可发起异议或确认无异议；「待补充凭证」时可直接提交补充凭证。
  */
 const MyAssessmentsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,7 +46,30 @@ const MyAssessmentsPage: React.FC = () => {
   const [appealTarget, setAppealTarget] = useState<AssessmentListItem | null>(null);
   const [appealReason, setAppealReason] = useState('');
   const [appealing, setAppealing] = useState(false);
+  const [noObjectionLoadingId, setNoObjectionLoadingId] = useState<number | null>(null);
   const [form] = Form.useForm();
+
+  // 确认无异议
+  const handleNoObjection = async (record: AssessmentListItem) => {
+    Modal.confirm({
+      title: '确认没有异议？',
+      content: '确认后本考核项将视为您无异议。若全体人员均确认无异议，考核将跳过AI审查与裁定直接完结（已裁定）。',
+      okText: '确认无异议',
+      cancelText: '再想想',
+      onOk: async () => {
+        setNoObjectionLoadingId(record.id);
+        try {
+          const res = await assessmentApi.confirmNoObjection(record.id);
+          message.success(res?.data?.message || '已确认无异议');
+          fetchData();
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '操作失败');
+        } finally {
+          setNoObjectionLoadingId(null);
+        }
+      },
+    });
+  };
 
   const fetchData = async (p = page, ps = pageSize, kw = keyword, st = statusFilter, mo = monthFilter) => {
     setLoading(true);
@@ -100,6 +123,14 @@ const MyAssessmentsPage: React.FC = () => {
     { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 140, render: (v) => v || '-' },
     { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 120, render: (v) => v || '-' },
     {
+      title: '身份',
+      key: 'identity',
+      width: 80,
+      render: (_, record) => (
+        record.is_sponsor ? <Tag color="blue">主办</Tag> : <Tag color="green">参与</Tag>
+      ),
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -107,10 +138,17 @@ const MyAssessmentsPage: React.FC = () => {
       render: (v: string) => <Tag color={ASSESSMENT_STATUS_COLORS[v]}>{ASSESSMENT_STATUS_LABELS[v] || v}</Tag>,
     },
     {
-      title: '最终得分',
+      title: '考核总分',
       dataIndex: 'final_score',
       key: 'final_score',
-      width: 100,
+      width: 95,
+      render: (v) => (v !== null && v !== undefined ? <Text type="secondary">{v}</Text> : '-'),
+    },
+    {
+      title: '我的得分',
+      dataIndex: 'my_score',
+      key: 'my_score',
+      width: 95,
       render: (v) => (v !== null && v !== undefined ? <Text strong style={{ color: '#1677ff' }}>{v}</Text> : '-'),
     },
     {
@@ -123,7 +161,7 @@ const MyAssessmentsPage: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 170,
+      width: 230,
       render: (_, record) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/assessment/${record.id}`)}>详情</Button>
@@ -132,21 +170,35 @@ const MyAssessmentsPage: React.FC = () => {
               提交补充凭证
             </Button>
           )}
-          {record.status === 'appeal_period' && (
-            <Button
-              type="primary"
-              danger
-              size="small"
-              icon={<ExclamationCircleOutlined />}
-              onClick={() => {
-                setAppealTarget(record);
-                setAppealReason('');
-                form.resetFields();
-                setAppealOpen(true);
-              }}
-            >
-              发起异议
-            </Button>
+          {record.can_appeal && (
+            <>
+              <Button
+                type="primary"
+                danger
+                size="small"
+                icon={<ExclamationCircleOutlined />}
+                onClick={() => {
+                  setAppealTarget(record);
+                  setAppealReason('');
+                  form.resetFields();
+                  setAppealOpen(true);
+                }}
+              >
+                发起异议
+              </Button>
+              {record.no_objection_confirmed ? (
+                <Tag color="success">已确认无异议</Tag>
+              ) : (
+                <Button
+                  size="small"
+                  icon={<CheckOutlined />}
+                  onClick={() => handleNoObjection(record)}
+                  loading={noObjectionLoadingId === record.id}
+                >
+                  没有异议
+                </Button>
+              )}
+            </>
           )}
         </Space>
       ),
@@ -181,7 +233,7 @@ const MyAssessmentsPage: React.FC = () => {
           />
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
-        <Text type="secondary">我作为责任人的考核记录</Text>
+        <Text type="secondary">我主办或我参与的考核记录</Text>
       </Space>
 
       <Table

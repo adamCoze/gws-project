@@ -202,6 +202,9 @@ export const assessmentApi = {
   // 发起异议
   submitAppeal: (id: number, data: { reason: string; attachments?: AssessmentAttachment[] }) =>
     api.post(`/assessment/${id}/appeal`, data),
+  // 确认无异议（全员确认后直接完结）
+  confirmNoObjection: (id: number) =>
+    api.post(`/assessment/${id}/no-objection`),
   // 异议补充意见（监察/集团总监）
   submitAppealComment: (id: number, content: string) =>
     api.post(`/assessment/${id}/appeal-comment`, { content }),

@@ -4,8 +4,11 @@ from typing import Optional, List, Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from services.assessment_service import _calc_my_score, _can_user_appeal
 
 from database import get_db
 from auth import get_current_user, require_role
@@ -54,6 +57,7 @@ from services.assessment_service import (
     get_non_assessment_list,
     submit_appeal,
     submit_appeal_comment,
+    confirm_no_objection,
     get_pending_ruling_list,
     submit_ruling,
     get_all_assessments,
@@ -413,21 +417,65 @@ async def my_assessments_api(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """我参与的考核列表（主办人视角）"""
+    """我参与的考核列表（我主办的 + 我作为参与人被评分的）"""
     total, items = await get_my_assessments(
         db, current_user, page, page_size, status, month, keyword
     )
+
+    # 批量查确认无异议人员的姓名
+    all_confirmed_ids: set = set()
+    for a in items:
+        all_confirmed_ids.update(a.no_objection_confirmations or [])
+    name_map: dict = {}
+    if all_confirmed_ids:
+        from models import User as _User
+        user_result = await db.execute(select(_User).where(_User.id.in_(all_confirmed_ids)))
+        for u in user_result.scalars().all():
+            name_map[u.id] = u.real_name or u.username
+
+    out_items = []
+    for item in items:
+        dto = AssessmentListItemOut.model_validate(item).model_dump()
+        dto["my_score"] = _calc_my_score(item, current_user.id)
+        dto["is_sponsor"] = item.sponsor_id == current_user.id
+        dto["can_appeal"] = _can_user_appeal(item, current_user.id)
+        confirmations = list(item.no_objection_confirmations or [])
+        dto["no_objection_confirmed"] = current_user.id in confirmations
+        dto["no_objection_names"] = "、".join(
+            name_map.get(uid, f"用户#{uid}") for uid in confirmations
+        ) or None
+        out_items.append(dto)
+
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [AssessmentListItemOut.model_validate(item).model_dump() for item in items],
+        "items": out_items,
     }
 
 
 # ======================================================================
 # 异议
 # ======================================================================
+
+
+@router.post("/{id}/no-objection", response_model=dict)
+async def confirm_no_objection_api(
+    id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """确认无异议（主办人/最终层参与人）；全员确认后直接完结（已裁定）"""
+    try:
+        assessment = await confirm_no_objection(db, id, current_user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    completed = assessment.status == AssessmentStatus.completed.value
+    return {
+        "success": True,
+        "message": "全员确认无异议，考核已完结（已裁定，维持原评分）" if completed else "已确认无异议，等待其他人员确认",
+        "completed": completed,
+    }
 
 
 @router.post("/{id}/appeal", response_model=dict)
@@ -437,7 +485,7 @@ async def submit_appeal_api(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """主办人发起异议"""
+    """发起异议（主办人或最终层参与人）"""
     try:
         appeal = await submit_appeal(db, id, current_user, data.reason)
     except ValueError as e:
@@ -535,21 +583,33 @@ async def get_assessment_api(
     if not assessment:
         raise HTTPException(status_code=404, detail="考核记录不存在或无权限查看")
 
+    # 统一序列化为 pydantic 副本（不直接返回 ORM；脱敏/字段填充只改副本，
+    # 避免被 get_db 请求结束时的 session.commit() 持久化成脏数据）
+    detail = AssessmentDetailOut.model_validate(assessment)
+
+    # 无异议确认信息
+    confirmations = list(assessment.no_objection_confirmations or [])
+    detail.no_objection_confirmations = confirmations
+    detail.no_objection_names = []
+    if confirmations:
+        from models import User as _User
+        user_result = await db.execute(select(_User).where(_User.id.in_(confirmations)))
+        detail.no_objection_names = [
+            u.real_name or u.username for u in user_result.scalars().all()
+        ]
+    detail.can_appeal = _can_user_appeal(assessment, current_user.id)
+    detail.current_user_confirmed = current_user.id in confirmations
+
     # 脱敏：AI审查意见、各层补充意见仅监察主任及以上可见；员工仅见自己的异议理由与裁定结果
-    # 注意：必须先序列化为 pydantic 副本再修改——直接改 ORM 对象会被 get_db 请求结束时
-    # 的 session.commit() 持久化，把 hidden/清空值写进数据库（已发生过数据损坏）
     from models import RoleLevel as _RL
     from services.assessment_service import _get_effective_role_level
-    if _get_effective_role_level(current_user) < _RL.REGULATOR and assessment.appeal:
-        detail = AssessmentDetailOut.model_validate(assessment)
-        if detail.appeal:
-            detail.appeal.ai_opinions = []
-            detail.appeal.ai_status = "hidden"
-            detail.appeal.regulator_comment = None
-            detail.appeal.group_director_comment = None
-        return detail
+    if _get_effective_role_level(current_user) < _RL.REGULATOR and detail.appeal:
+        detail.appeal.ai_opinions = []
+        detail.appeal.ai_status = "hidden"
+        detail.appeal.regulator_comment = None
+        detail.appeal.group_director_comment = None
 
-    return assessment
+    return detail
 
 
 # ======================================================================
@@ -648,6 +708,14 @@ async def admin_all_assessments(
                     {
                         "level": s.level,
                         "total_score": s.total_score,
+                        "participants": [
+                            {
+                                "user_id": p.user_id,
+                                "user_name": p.user_name,
+                                "score": p.score,
+                            }
+                            for p in (s.participants or [])
+                        ],
                     } for s in (a.scores or [])
                 ],
             }

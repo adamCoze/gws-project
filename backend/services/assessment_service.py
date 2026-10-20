@@ -772,6 +772,46 @@ async def get_to_score_list(
     return total, items
 
 
+def _get_group_participant_ids(assessment: Assessment) -> set:
+    """获取最终层（集团层）参与人ID集合；无集团层评分时回退到最新层参与人"""
+    for s in assessment.scores:
+        if s.level == ScoreLevel.group.value:
+            return {p.user_id for p in s.participants}
+    # 兜底：取最新提交层的参与人
+    if assessment.scores:
+        latest = sorted(assessment.scores, key=lambda s: s.submitted_at)[-1]
+        return {p.user_id for p in latest.participants}
+    return set()
+
+
+def _get_appeal_eligible_user_ids(assessment: Assessment) -> set:
+    """可发起异议/确认无异议的人员：主办人 + 最终层参与人"""
+    return _get_group_participant_ids(assessment) | {assessment.sponsor_id}
+
+
+def _calc_my_score(assessment: Assessment, user_id: int) -> Optional[float]:
+    """当前用户在该考核中最新评分层里自己的分摊分（完结后即集团层/裁定后分摊）"""
+    my_layers = []
+    for s in assessment.scores:
+        for p in s.participants:
+            if p.user_id == user_id:
+                my_layers.append((s.submitted_at, p.score))
+                break
+    if not my_layers:
+        return None
+    my_layers.sort(key=lambda x: x[0])
+    return my_layers[-1][1]
+
+
+def _can_user_appeal(assessment: Assessment, user_id: int) -> bool:
+    """当前用户此刻是否可发起异议/确认无异议"""
+    if assessment.status != AssessmentStatus.appeal_period.value:
+        return False
+    if assessment.appeal:
+        return False
+    return user_id in _get_appeal_eligible_user_ids(assessment)
+
+
 def validate_score(total_score: int, participants: list) -> Tuple[bool, str]:
     """校验评分参数：总分档位 + 参与人分配和"""
     if total_score not in ScoreTier.TIERS:
@@ -963,20 +1003,22 @@ def _calculate_appeal_deadline(from_date: datetime) -> datetime:
 
 
 async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -> None:
-    """检查并自动流转：异议期已过 → 待裁定"""
+    """检查并自动流转：异议期已过且无人异议 → 直接完结（已裁定，维持原评分）"""
     if (
         assessment.status == AssessmentStatus.appeal_period.value
         and assessment.appeal_deadline
         and datetime.utcnow() > assessment.appeal_deadline
     ):
-        assessment.status = AssessmentStatus.pending_ruling.value
+        assessment.status = AssessmentStatus.completed.value
+        assessment.completed_at = datetime.utcnow()
+        assessment.updated_at = datetime.utcnow()
         # 操作日志
         log = AssessmentOperationLog(
             assessment_id=assessment.id,
             work_item_id=assessment.work_item_id,
             operator_id=1,  # 系统操作，记录为 admin
             action="auto_expire_appeal",
-            detail="异议期已过，自动流转为待裁定状态",
+            detail="异议期已过，无人提出异议，跳过AI审查与裁定，自动完结（已裁定）",
         )
         db.add(log)
 
@@ -991,13 +1033,15 @@ async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) 
             and a.appeal_deadline
             and now > a.appeal_deadline
         ):
-            a.status = AssessmentStatus.pending_ruling.value
+            a.status = AssessmentStatus.completed.value
+            a.completed_at = now
+            a.updated_at = now
             log = AssessmentOperationLog(
                 assessment_id=a.id,
                 work_item_id=a.work_item_id,
                 operator_id=1,  # 系统操作，记录为 admin
                 action="auto_expire_appeal",
-                detail="异议期已过，自动流转为待裁定状态",
+                detail="异议期已过，无人提出异议，跳过AI审查与裁定，自动完结（已裁定）",
             )
             db.add(log)
             changed = True
@@ -1298,8 +1342,22 @@ async def get_my_assessments(
     month: Optional[str] = None,
     keyword: Optional[str] = None,
 ) -> Tuple[int, List[Assessment]]:
-    """获取我主办的考核列表"""
-    query = select(Assessment).where(Assessment.sponsor_id == user.id)
+    """获取我参与的考核列表（我主办的 + 我作为参与人被评分的）"""
+    # 我作为任一层参与人的考核ID
+    participant_assessment_ids = (
+        select(AssessmentScore.assessment_id)
+        .join(
+            AssessmentScoreParticipant,
+            AssessmentScoreParticipant.score_id == AssessmentScore.id,
+        )
+        .where(AssessmentScoreParticipant.user_id == user.id)
+    )
+    query = select(Assessment).where(
+        or_(
+            Assessment.sponsor_id == user.id,
+            Assessment.id.in_(participant_assessment_ids),
+        )
+    )
 
     if status:
         query = query.where(Assessment.status == status)
@@ -1318,6 +1376,8 @@ async def get_my_assessments(
         selectinload(Assessment.sponsor),
         selectinload(Assessment.department),
         selectinload(Assessment.district),
+        selectinload(Assessment.appeal),
+        selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
     )
 
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
@@ -1580,25 +1640,97 @@ async def get_non_assessment_list(
 # 异议处理
 # ======================================================================
 
-async def submit_appeal(
+async def confirm_no_objection(
     db: AsyncSession,
     assessment_id: int,
     user: User,
-    reason: str,
-) -> AssessmentAppeal:
-    """主办人发起异议"""
+) -> Assessment:
+    """确认无异议：主办人/最终层参与人各自确认；全员确认后跳过AI审查与裁定直接完结"""
     result = await db.execute(
         select(Assessment)
-        .options(selectinload(Assessment.appeal))
+        .options(
+            selectinload(Assessment.appeal),
+            selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
+        )
         .where(Assessment.id == assessment_id)
     )
     assessment = result.scalar_one_or_none()
     if not assessment:
         raise ValueError("考核项不存在")
 
-    # 权限：只能是主办人
-    if assessment.sponsor_id != user.id:
-        raise ValueError("无权限：只有主办人才能发起异议")
+    eligible = _get_appeal_eligible_user_ids(assessment)
+    if user.id not in eligible:
+        raise ValueError("无权限：只有主办人或最终评分层参与人可确认")
+
+    # 先自动检查异议期是否过期
+    await _auto_expire_appeal_period(db, assessment)
+
+    # 状态校验：必须在异议期
+    if assessment.status != AssessmentStatus.appeal_period.value:
+        raise ValueError("当前状态不可确认（考核已完结或已发起异议）")
+
+    if assessment.appeal:
+        raise ValueError("已有异议发起，无需确认")
+
+    confirmations = list(assessment.no_objection_confirmations or [])
+    if user.id in confirmations:
+        raise ValueError("您已确认过无异议")
+
+    confirmations.append(user.id)
+    assessment.no_objection_confirmations = confirmations
+    assessment.updated_at = datetime.utcnow()
+
+    await add_operation_log(
+        db,
+        assessment_id=assessment.id,
+        work_item_id=assessment.work_item_id,
+        operator_id=user.id,
+        action="no_objection",
+        detail="确认无异议",
+    )
+
+    # 全员确认 → 直接完结（已裁定，维持原评分）
+    if eligible.issubset(set(confirmations)):
+        assessment.status = AssessmentStatus.completed.value
+        assessment.completed_at = datetime.utcnow()
+        assessment.updated_at = datetime.utcnow()
+        await add_operation_log(
+            db,
+            assessment_id=assessment.id,
+            work_item_id=assessment.work_item_id,
+            operator_id=user.id,
+            action="no_objection_complete",
+            detail="全员确认无异议，跳过AI审查与裁定，考核完结（已裁定，维持原评分）",
+        )
+
+    await db.commit()
+    await db.refresh(assessment)
+    return assessment
+
+
+async def submit_appeal(
+    db: AsyncSession,
+    assessment_id: int,
+    user: User,
+    reason: str,
+) -> AssessmentAppeal:
+    """发起异议（主办人或最终层参与人）"""
+    result = await db.execute(
+        select(Assessment)
+        .options(
+            selectinload(Assessment.appeal),
+            selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
+        )
+        .where(Assessment.id == assessment_id)
+    )
+    assessment = result.scalar_one_or_none()
+    if not assessment:
+        raise ValueError("考核项不存在")
+
+    # 权限：主办人或最终层参与人
+    eligible = _get_appeal_eligible_user_ids(assessment)
+    if user.id not in eligible:
+        raise ValueError("无权限：只有主办人或最终评分层参与人才能发起异议")
 
     # 先自动检查异议期是否过期
     await _auto_expire_appeal_period(db, assessment)
@@ -1866,7 +1998,7 @@ async def get_all_assessments(
         selectinload(Assessment.sponsor),
         selectinload(Assessment.department),
         selectinload(Assessment.district),
-        selectinload(Assessment.scores),
+        selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
     )
 
     # count
@@ -1922,7 +2054,7 @@ async def export_assessments_excel(
     # 表头
     headers = [
         "序号", "工作项编号", "工作项标题", "主办人", "部门", "区域",
-        "发起时间", "状态", "区总评分", "规管评分", "集团总监评分", "考核分值",
+        "发起时间", "状态", "区总评分", "规管评分", "集团总监评分", "考核分值", "参与人得分",
     ]
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -1945,7 +2077,7 @@ async def export_assessments_excel(
         AS.appealed.value: "已提异议",
         AS.ai_reviewing.value: "AI审查中",
         AS.pending_ruling.value: "待裁定",
-        AS.completed.value: "已完结",
+        AS.completed.value: "已裁定",
         AS.cancelled.value: "已终止",
     }
 
@@ -1956,6 +2088,7 @@ async def export_assessments_excel(
         regulator_score_val = ""
         group_score_val = ""
         final_score = ""
+        participant_score_val = ""
         if a.scores:
             for s in a.scores:
                 if s.level == ScoreLevel.district.value:
@@ -1964,6 +2097,11 @@ async def export_assessments_excel(
                     regulator_score_val = s.total_score
                 elif s.level == ScoreLevel.group.value:
                     group_score_val = s.total_score
+                    # 参与人得分：取集团层分摊（裁定调整时已同步缩放）
+                    if s.participants:
+                        participant_score_val = "；".join(
+                            f"{p.user_name}：{p.score}分" for p in s.participants
+                        )
             # 最终分：优先取裁定后的 final_score（调整分数裁定会更新它），无则回退最高层级评分
             if a.final_score is not None:
                 final_score = a.final_score
@@ -1986,9 +2124,10 @@ async def export_assessments_excel(
         ws.cell(row=row, column=10, value=regulator_score_val)
         ws.cell(row=row, column=11, value=group_score_val)
         ws.cell(row=row, column=12, value=final_score)
+        ws.cell(row=row, column=13, value=participant_score_val)
 
     # 调整列宽
-    col_widths = [6, 14, 35, 12, 14, 12, 18, 14, 10, 10, 12, 10]
+    col_widths = [6, 14, 35, 12, 14, 12, 18, 14, 10, 10, 12, 10, 30]
     for i, w in enumerate(col_widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 

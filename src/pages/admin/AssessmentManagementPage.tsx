@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Select, Space, Card, Row, Col, Input, DatePicker, Tag, message } from 'antd';
+import { Table, Button, Select, Space, Card, Row, Col, Input, DatePicker, Tag, message, Tooltip } from 'antd';
 import { ExportOutlined, SearchOutlined } from '@ant-design/icons';
 import { assessmentApi, districtApi, departmentApi } from '../../services/api';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../../types';
@@ -236,10 +236,28 @@ const AssessmentManagementPage: React.FC = () => {
       title: '最终分值',
       dataIndex: 'final_score',
       key: 'final_score',
-      width: 90,
+      width: 110,
       align: 'center' as const,
       render: (_: any, record: any) => {
         const v = getFinalScore(record);
+        // 悬浮显示参与人分摊明细（取集团层，裁定调整时后端已同步缩放）
+        const groupScore = (record.scores || []).find((s: any) => s.level === 'group');
+        const parts = groupScore?.participants || [];
+        if (parts.length > 0) {
+          return (
+            <Tooltip
+              title={(
+                <div>
+                  {parts.map((p: any) => (
+                    <div key={p.user_id}>{p.user_name || `用户#${p.user_id}`}：{p.score} 分</div>
+                  ))}
+                </div>
+              )}
+            >
+              <strong style={{ color: '#1677ff' }}>{v}</strong>
+            </Tooltip>
+          );
+        }
         return <strong style={{ color: '#1677ff' }}>{v}</strong>;
       },
     },

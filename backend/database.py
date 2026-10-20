@@ -229,6 +229,15 @@ async def _run_migrations():
                 # 新表 assessment_appeal_ai_opinions 由启动时 create_all 自动创建
                 new_version = 9
 
+            # ---- v10: assessments 表新增 no_objection_confirmations 列（无异议确认名单）----
+            if current_version < 10:
+                if not await _column_exists("assessments", "no_objection_confirmations"):
+                    await session.execute(text(
+                        "ALTER TABLE assessments ADD COLUMN no_objection_confirmations TEXT"
+                    ))
+                    logger.info("迁移 v10：assessments 表新增 no_objection_confirmations 字段")
+                new_version = 10
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

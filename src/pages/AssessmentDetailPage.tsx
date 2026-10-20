@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Card, Descriptions, Tag, Timeline, Typography, Space, Button, Image, List, Empty, Spin, message, Modal, Input, Form } from 'antd';
-import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined, CommentOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { ArrowLeftOutlined, MailOutlined, FileTextOutlined, UserOutlined, CommentOutlined, ExclamationCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ASSESSMENT_STATUS_LABELS,
@@ -92,6 +92,7 @@ const AssessmentDetailPage: React.FC = () => {
   const [appealOpen, setAppealOpen] = useState(false);
   const [appealReason, setAppealReason] = useState('');
   const [appealing, setAppealing] = useState(false);
+  const [noObjectionLoading, setNoObjectionLoading] = useState(false);
   const [appealForm] = Form.useForm();
 
   const submitAppeal = async () => {
@@ -125,6 +126,29 @@ const AssessmentDetailPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // 确认无异议
+  const handleNoObjection = () => {
+    Modal.confirm({
+      title: '确认没有异议？',
+      content: '确认后本考核项将视为您无异议。若全体人员均确认无异议，考核将跳过AI审查与裁定直接完结（已裁定）。',
+      okText: '确认无异议',
+      cancelText: '再想想',
+      onOk: async () => {
+        if (!id) return;
+        setNoObjectionLoading(true);
+        try {
+          const res = await assessmentApi.confirmNoObjection(Number(id));
+          message.success(res?.data?.message || '已确认无异议');
+          fetchDetail();
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '操作失败');
+        } finally {
+          setNoObjectionLoading(false);
+        }
+      },
+    });
   };
 
   const submitComment = async () => {
@@ -161,28 +185,65 @@ const AssessmentDetailPage: React.FC = () => {
 
   const fmt = (v?: string | null) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-');
 
+  // 参与人最终得分（取集团层分摊；裁定调整时后端已同步缩放）
+  const finalParticipants = (() => {
+    const groupScore = (detail.scores || []).find((s) => s.level === 'group');
+    if (groupScore?.participants && groupScore.participants.length > 0) {
+      return groupScore.participants;
+    }
+    // 兜底：取最新一层有参与人分配的评分
+    const withParticipants = (detail.scores || []).filter((s) => s.participants && s.participants.length > 0);
+    return withParticipants.length > 0 ? withParticipants[withParticipants.length - 1].participants : null;
+  })();
+
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
         <Title level={4} style={{ margin: 0 }}>{detail.work_item_title || `考核 #${detail.id}`}</Title>
         <Tag color={ASSESSMENT_STATUS_COLORS[detail.status]} style={{ fontSize: 14 }}>
           {ASSESSMENT_STATUS_LABELS[detail.status] || detail.status}
         </Tag>
         {detail.final_score !== null && detail.final_score !== undefined && (
-          <Tag color="blue" style={{ fontSize: 14 }}>最终得分：{detail.final_score}</Tag>
+          <Tag color="blue" style={{ fontSize: 14 }}>考核总分：{detail.final_score}</Tag>
         )}
-        {detail.status === 'appeal_period' && !detail.appeal && (
-          <Button
-            type="primary"
-            danger
-            icon={<ExclamationCircleOutlined />}
-            onClick={() => { setAppealOpen(true); setAppealReason(''); appealForm.resetFields(); }}
-          >
-            发起异议
-          </Button>
+        {finalParticipants && (
+          <Tag style={{ fontSize: 14 }}>
+            参与人得分：
+            {finalParticipants.map((p) => `${p.user_name || `用户#${p.user_id}`} ${p.score}分`).join(' / ')}
+          </Tag>
+        )}
+        {detail.can_appeal && (
+          <>
+            <Button
+              type="primary"
+              danger
+              icon={<ExclamationCircleOutlined />}
+              onClick={() => { setAppealOpen(true); setAppealReason(''); appealForm.resetFields(); }}
+            >
+              发起异议
+            </Button>
+            {detail.current_user_confirmed ? (
+              <Tag color="success" icon={<CheckOutlined />}>已确认无异议</Tag>
+            ) : (
+              <Button
+                icon={<CheckOutlined />}
+                onClick={handleNoObjection}
+                loading={noObjectionLoading}
+              >
+                没有异议
+              </Button>
+            )}
+          </>
         )}
       </Space>
+      {(detail.status === 'appeal_period' && (detail.no_objection_names?.length || 0) > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <Tag color="success">
+            已确认无异议：{detail.no_objection_names?.join('、')}
+          </Tag>
+        </div>
+      ))}
 
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
         <Descriptions column={3} size="small">
