@@ -62,6 +62,8 @@ from services.assessment_service import (
     submit_ruling,
     get_all_assessments,
     export_assessments_excel,
+    get_personal_score_summary,
+    export_personal_score_excel,
 )
 
 logger = logging.getLogger(__name__)
@@ -722,6 +724,45 @@ async def admin_all_assessments(
             for a in items
         ],
     }
+
+
+@router.get("/admin/personal-scores")
+async def admin_personal_scores(
+    month: Optional[str] = Query(None),
+    department_id: Optional[int] = Query(None),
+    district_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
+):
+    """按得分人统计：某月已完结考核的参与人得分汇总（需监察主任及以上权限）"""
+    items = await get_personal_score_summary(db, month, department_id, district_id)
+    return {"month": month, "total_persons": len(items), "items": items}
+
+
+@router.get("/admin/personal-scores/export")
+async def admin_export_personal_scores(
+    month: Optional[str] = Query(None),
+    department_id: Optional[int] = Query(None),
+    district_id: Optional[int] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
+):
+    """导出按得分人统计 Excel（汇总+明细）"""
+    from fastapi.responses import StreamingResponse
+    from io import BytesIO
+    from datetime import datetime as dt
+
+    excel_data = await export_personal_score_excel(
+        db=db, month=month, department_id=department_id, district_id=district_id,
+    )
+    filename = f"个人得分统计_{month or '全部'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    ascii_fallback = f"personal_scores_{month or 'all'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    quoted_utf8 = quote(filename)
+    return StreamingResponse(
+        BytesIO(excel_data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quoted_utf8}"},
+    )
 
 
 @router.get("/admin/export")

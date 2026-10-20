@@ -2135,3 +2135,178 @@ async def export_assessments_excel(
     wb.save(output)
     output.seek(0)
     return output.getvalue()
+
+
+# ======================================================================
+# 按得分人统计
+# ======================================================================
+
+async def get_personal_score_summary(
+    db: AsyncSession,
+    month: Optional[str] = None,
+    department_id: Optional[int] = None,
+    district_id: Optional[int] = None,
+) -> List[dict]:
+    """按得分人统计：某月已完结考核中每个参与人的最终得分汇总
+
+    口径：
+    - 月份按考核发起时间（initiated_at）过滤，与其他列表一致
+    - 只统计已完结（completed/已裁定）的考核
+    - 得分取集团层参与人分摊（裁定调整时已同步缩放）；无参与人分配时总分归主办人
+    """
+    from sqlalchemy import text as sa_text
+
+    query = (
+        select(Assessment)
+        .options(
+            selectinload(Assessment.work_item),
+            selectinload(Assessment.sponsor),
+            selectinload(Assessment.department),
+            selectinload(Assessment.district),
+            selectinload(Assessment.scores).selectinload(AssessmentScore.participants),
+        )
+        .where(Assessment.status == AssessmentStatus.completed.value)
+    )
+    if month:
+        query = query.where(sa_text(
+            "strftime('%Y-%m', initiated_at) = :month"
+        ).params(month=month))
+    if department_id:
+        query = query.where(Assessment.department_id == department_id)
+    if district_id:
+        query = query.where(Assessment.district_id == district_id)
+
+    result = await db.execute(query)
+    items = list(result.scalars().all())
+
+    # 聚合：user_id -> 汇总
+    summary: dict = {}
+    for a in items:
+        group_score = None
+        for s in a.scores:
+            if s.level == ScoreLevel.group.value:
+                group_score = s
+                break
+        if group_score and group_score.participants:
+            entries = [(p.user_id, p.user_name, float(p.score)) for p in group_score.participants]
+        else:
+            # 无参与人分配：总分归主办人
+            name = (a.sponsor.real_name or a.sponsor.username) if a.sponsor else f"用户#{a.sponsor_id}"
+            total = a.final_score if a.final_score is not None else (group_score.total_score if group_score else 0)
+            entries = [(a.sponsor_id, name, float(total))]
+
+        title = a.work_item.title if a.work_item else f"WI-{a.work_item_id}"
+        for uid, uname, score in entries:
+            if uid not in summary:
+                summary[uid] = {
+                    "user_id": uid,
+                    "user_name": uname,
+                    "total_score": 0.0,
+                    "item_count": 0,
+                    "items": [],
+                }
+            summary[uid]["total_score"] = round(summary[uid]["total_score"] + score, 2)
+            summary[uid]["item_count"] += 1
+            summary[uid]["items"].append({
+                "assessment_id": a.id,
+                "work_item_id": a.work_item_id,
+                "title": title,
+                "score": score,
+                "department_name": a.department.name if a.department else "",
+                "district_name": a.district.name if a.district else "",
+                "initiated_at": a.initiated_at.isoformat() if a.initiated_at else None,
+            })
+
+    # 补充参与人部门/区域
+    if summary:
+        user_result = await db.execute(
+            select(User).options(
+                selectinload(User.department),
+                selectinload(User.district),
+            ).where(User.id.in_(list(summary.keys())))
+        )
+        for u in user_result.scalars().all():
+            if u.id in summary:
+                summary[u.id]["department_name"] = u.department.name if u.department else ""
+                summary[u.id]["district_name"] = u.district.name if u.district else ""
+
+    # 按总分降序
+    out = sorted(summary.values(), key=lambda x: -x["total_score"])
+    for s in out:
+        s.setdefault("department_name", "")
+        s.setdefault("district_name", "")
+    return out
+
+
+async def export_personal_score_excel(
+    db: AsyncSession,
+    month: Optional[str] = None,
+    department_id: Optional[int] = None,
+    district_id: Optional[int] = None,
+) -> bytes:
+    """导出按得分人统计 Excel（汇总+明细两个sheet）"""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    summary = await get_personal_score_summary(db, month, department_id, district_id)
+
+    wb = Workbook()
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+
+    # Sheet1: 汇总
+    ws = wb.active
+    ws.title = "个人得分汇总"
+    headers = ["排名", "姓名", "部门", "区域", "考核项数", "总得分"]
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    for idx, s in enumerate(summary, 1):
+        row = idx + 1
+        ws.cell(row=row, column=1, value=idx)
+        ws.cell(row=row, column=2, value=s["user_name"])
+        ws.cell(row=row, column=3, value=s.get("department_name", ""))
+        ws.cell(row=row, column=4, value=s.get("district_name", ""))
+        ws.cell(row=row, column=5, value=s["item_count"])
+        ws.cell(row=row, column=6, value=s["total_score"])
+
+    for i, w in enumerate([6, 12, 16, 12, 10, 10], 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+
+    # Sheet2: 明细
+    ws2 = wb.create_sheet("明细")
+    headers2 = ["姓名", "工作项", "所属部门", "区域", "得分", "发起时间"]
+    for col, header in enumerate(headers2, 1):
+        cell = ws2.cell(row=1, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    r = 2
+    for s in summary:
+        for it in s["items"]:
+            ws2.cell(row=r, column=1, value=s["user_name"])
+            ws2.cell(row=r, column=2, value=it["title"])
+            ws2.cell(row=r, column=3, value=it.get("department_name", ""))
+            ws2.cell(row=r, column=4, value=it.get("district_name", ""))
+            ws2.cell(row=r, column=5, value=it["score"])
+            initiated = it.get("initiated_at")
+            if initiated:
+                try:
+                    from datetime import datetime as _dt
+                    ws2.cell(row=r, column=6, value=_dt.fromisoformat(initiated).strftime("%Y-%m-%d %H:%M"))
+                except Exception:
+                    ws2.cell(row=r, column=6, value=initiated)
+            r += 1
+
+    for i, w in enumerate([12, 35, 16, 12, 10, 18], 1):
+        ws2.column_dimensions[ws2.cell(row=1, column=i).column_letter].width = w
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output.getvalue()

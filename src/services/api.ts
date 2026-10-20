@@ -240,6 +240,21 @@ export const assessmentApi = {
     const res = await api.get('/assessment/admin/all', { params });
     return res as unknown as { items: any[]; total: number; page: number; page_size: number };
   },
+  // 管理员：按得分人统计
+  personalScores: async (params?: { month?: string; district_id?: number; department_id?: number }): Promise<{ items: any[]; total_persons: number; month?: string }> => {
+    const res = await api.get('/assessment/admin/personal-scores', { params });
+    return res as unknown as { items: any[]; total_persons: number; month?: string };
+  },
+  personalScoreExportUrl: (params?: { month?: string; district_id?: number; department_id?: number }) => {
+    const base = '/api/assessment/admin/personal-scores/export';
+    if (!params) return base;
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') qs.append(k, String(v));
+    });
+    const str = qs.toString();
+    return str ? `${base}?${str}` : base;
+  },
   // 管理员：导出考核 Excel
   adminExportUrl: (params?: { month?: string; status?: string; district_id?: number; department_id?: number; keyword?: string }) => {
     const base = '/api/assessment/admin/export';

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Select, Space, Card, Row, Col, Input, DatePicker, Tag, message, Tooltip } from 'antd';
-import { ExportOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Button, Select, Space, Card, Row, Col, Input, DatePicker, Tag, message, Modal } from 'antd';
+import { ExportOutlined, SearchOutlined, BarChartOutlined } from '@ant-design/icons';
 import { assessmentApi, districtApi, departmentApi } from '../../services/api';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../../types';
 import type { District, Department } from '../../types';
@@ -23,6 +23,11 @@ const AssessmentManagementPage: React.FC = () => {
   const [districtId, setDistrictId] = useState<number | undefined>(undefined);
   const [departmentId, setDepartmentId] = useState<number | undefined>(undefined);
   const [keyword, setKeyword] = useState<string>('');
+
+  // 按得分人统计
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [statsItems, setStatsItems] = useState<any[]>([]);
 
   // 取区域和部门列表
   useEffect(() => {
@@ -118,6 +123,72 @@ const AssessmentManagementPage: React.FC = () => {
         message.error(err.message || '导出失败');
       });
   };
+
+  // 按得分人统计
+  const openStats = async () => {
+    setStatsOpen(true);
+    setStatsLoading(true);
+    try {
+      const res = await assessmentApi.personalScores({
+        month,
+        district_id: districtId,
+        department_id: departmentId,
+      });
+      setStatsItems(res.items || []);
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '加载统计失败');
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const handleStatsExport = () => {
+    const url = assessmentApi.personalScoreExportUrl({
+      month,
+      district_id: districtId,
+      department_id: departmentId,
+    });
+    const token = localStorage.getItem('token');
+    fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error('导出失败');
+        return res.blob();
+      })
+      .then((blob) => {
+        const a = document.createElement('a');
+        const objectUrl = URL.createObjectURL(blob);
+        a.href = objectUrl;
+        a.download = `个人得分统计_${month || '全部'}_${dayjs().format('YYYYMMDD')}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+        message.success('导出成功');
+      })
+      .catch((err) => {
+        message.error(err.message || '导出失败');
+      });
+  };
+
+  const statsColumns = [
+    { title: '排名', key: 'rank', width: 60, align: 'center' as const, render: (_: any, __: any, idx: number) => idx + 1 },
+    { title: '姓名', dataIndex: 'user_name', key: 'user_name', width: 100 },
+    { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 130, render: (v: any) => v || '-' },
+    { title: '考核项数', dataIndex: 'item_count', key: 'item_count', width: 90, align: 'center' as const },
+    {
+      title: '总得分',
+      dataIndex: 'total_score',
+      key: 'total_score',
+      width: 100,
+      align: 'center' as const,
+      sorter: (a: any, b: any) => a.total_score - b.total_score,
+      render: (v: number) => <strong style={{ color: '#1677ff' }}>{v}</strong>,
+    },
+  ];
 
   const getScoreByLevel = (record: any, level: string) => {
     const score = (record.scores || []).find((s: any) => s.level === level);
@@ -236,29 +307,34 @@ const AssessmentManagementPage: React.FC = () => {
       title: '最终分值',
       dataIndex: 'final_score',
       key: 'final_score',
-      width: 110,
+      width: 90,
       align: 'center' as const,
       render: (_: any, record: any) => {
         const v = getFinalScore(record);
-        // 悬浮显示参与人分摊明细（取集团层，裁定调整时后端已同步缩放）
+        return <strong style={{ color: '#1677ff' }}>{v}</strong>;
+      },
+    },
+    {
+      title: '参与人得分',
+      key: 'participant_scores',
+      width: 170,
+      render: (_: any, record: any) => {
+        // 取集团层分摊（裁定调整时后端已同步缩放）
         const groupScore = (record.scores || []).find((s: any) => s.level === 'group');
         const parts = groupScore?.participants || [];
-        if (parts.length > 0) {
-          return (
-            <Tooltip
-              title={(
-                <div>
-                  {parts.map((p: any) => (
-                    <div key={p.user_id}>{p.user_name || `用户#${p.user_id}`}：{p.score} 分</div>
-                  ))}
-                </div>
-              )}
-            >
-              <strong style={{ color: '#1677ff' }}>{v}</strong>
-            </Tooltip>
-          );
+        if (parts.length === 0) {
+          // 无参与人分配：总分归主办人
+          return <span style={{ fontSize: 12 }}>{record.sponsor_name || '-'}（未分配）</span>;
         }
-        return <strong style={{ color: '#1677ff' }}>{v}</strong>;
+        return (
+          <div style={{ fontSize: 12, lineHeight: '20px' }}>
+            {parts.map((p: any) => (
+              <div key={p.user_id}>
+                {p.user_name || `用户#${p.user_id}`}：<span style={{ color: '#1677ff', fontWeight: 600 }}>{p.score}</span> 分
+              </div>
+            ))}
+          </div>
+        );
       },
     },
   ];
@@ -268,6 +344,9 @@ const AssessmentManagementPage: React.FC = () => {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <h2 style={{ margin: 0 }}>考核管理</h2>
         <Space>
+          <Button icon={<BarChartOutlined />} onClick={openStats}>
+            按得分人统计
+          </Button>
           <Button type="primary" icon={<ExportOutlined />} onClick={handleExport}>
             导出 Excel
           </Button>
@@ -375,6 +454,48 @@ const AssessmentManagementPage: React.FC = () => {
         }}
         scroll={{ x: 1200 }}
       />
+
+      <Modal
+        title={`按得分人统计${month ? `（${month}）` : '（全部月份）'}`}
+        open={statsOpen}
+        onCancel={() => setStatsOpen(false)}
+        width={860}
+        footer={[
+          <Button key="close" onClick={() => setStatsOpen(false)}>关闭</Button>,
+          <Button key="export" type="primary" icon={<ExportOutlined />} onClick={handleStatsExport}>
+            导出 Excel
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <Tag color="blue">统计口径：{month ? `${month} 发起` : '全部月份发起'}的已完结（已裁定）考核</Tag>
+          <span style={{ color: '#999', fontSize: 12 }}>得分 = 集团层参与人分摊（无分配时归主办人）</span>
+        </div>
+        <Table
+          rowKey="user_id"
+          size="small"
+          loading={statsLoading}
+          dataSource={statsItems}
+          columns={statsColumns}
+          pagination={false}
+          expandable={{
+            expandedRowRender: (record: any) => (
+              <Table
+                rowKey={(r: any) => `${record.user_id}-${r.assessment_id}`}
+                size="small"
+                dataSource={record.items || []}
+                pagination={false}
+                columns={[
+                  { title: '工作项', dataIndex: 'title', key: 'title' },
+                  { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 120, render: (v: any) => v || '-' },
+                  { title: '得分', dataIndex: 'score', key: 'score', width: 80, align: 'center' as const },
+                  { title: '发起时间', dataIndex: 'initiated_at', key: 'initiated_at', width: 150, render: (v: any) => (v ? new Date(v).toLocaleDateString('zh-CN') : '-') },
+                ]}
+              />
+            ),
+          }}
+        />
+      </Modal>
     </div>
   );
 };
