@@ -40,6 +40,8 @@ async def get_kanban(
             .where(WorkItem.department_id == dept.id)
             .options(
                 selectinload(WorkItem.department),
+                selectinload(WorkItem.sponsor).selectinload(User.department),
+                selectinload(WorkItem.sponsor).selectinload(User.district),
                 selectinload(WorkItem.assignee).selectinload(User.department),
                 selectinload(WorkItem.assignee).selectinload(User.district),
                 selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator).selectinload(User.department),

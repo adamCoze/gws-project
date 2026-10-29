@@ -349,11 +349,60 @@ async def get_work_item_email_url(
             cached_url = f"{settings.ALIMAIL_WEBMAIL_BASE}{encoded}"
             logger.info(f"缓存命中(found): work_item={item_id}, user={user_email}")
             return EmailUrlResponse(url=cached_url)
-        elif cache_row.status == "not_found":
-            logger.info(f"缓存命中(not_found): work_item={item_id}, user={user_email}")
-            return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹", search_url=_build_email_search_url(item.email_subject, item.title, user_email))
+        # not_found 不直接返回：先尝试其他用户的 found 缓存，最后才认输
+
+    # === Tier 1.5: 当前用户无缓存时，回退到该工作项任意 found 缓存（同一邮箱域内会话ID通用）===
+    # 场景：历史/迁移数据只有部分用户点过邮件按钮，其他用户点开时不应重新调API
+    fb_result = await db.execute(
+        select(EmailUrlCache)
+        .where(
+            EmailUrlCache.work_item_id == item_id,
+            EmailUrlCache.status == "found",
+            EmailUrlCache.conversation_id.isnot(None),
+        )
+        .order_by(EmailUrlCache.id)
+        .limit(1)
+    )
+    fb_row = fb_result.scalar_one_or_none()
+    if fb_row and fb_row.conversation_id:
+        import base64 as b64
+        import json as json_mod
+        url_payload = json_mod.dumps({"id": fb_row.conversation_id, "type": "session"})
+        encoded = b64.b64encode(url_payload.encode()).decode()
+        fallback_url = f"{settings.ALIMAIL_WEBMAIL_BASE}{encoded}"
+        # 顺带写入当前用户缓存，下次直接命中
+        try:
+            import sqlite3 as _sqlite3
+            from datetime import datetime as dt
+            now_str = dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            _conn = _sqlite3.connect("/app/backend/data/gws.db")
+            _conn.execute("DELETE FROM email_url_cache WHERE user_email = ? AND work_item_id = ?", (user_email, item_id))
+            _conn.execute(
+                "INSERT INTO email_url_cache (user_email, work_item_id, conversation_id, status, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_email, item_id, fb_row.conversation_id, "found", now_str),
+            )
+            _conn.commit()
+            _conn.close()
+        except Exception as e:
+            logger.warning(f"回退缓存写入失败（不影响URL返回）: {e}")
+        logger.info(f"回退命中: work_item={item_id}, user={user_email}, from={fb_row.user_email}")
+        return EmailUrlResponse(url=fallback_url)
+
+    # === Tier 1.6: 各用户缓存都没有 → 若当前用户曾判定 not_found，如实返回 ===
+    if cache_row and cache_row.status == "not_found":
+        logger.info(f"缓存命中(not_found): work_item={item_id}, user={user_email}")
+        return EmailUrlResponse(url=None, error="未找到原邮件，可能已被删除或移动到其他文件夹",
+                                search_url=_build_email_search_url(item.email_subject, item.title, user_email))
 
     # === Tier 2: 缓存未命中，调API查找 ===
+    # 阿里邮箱API未配置时，直接提示配置缺失（避免误报「邮件已删除」）
+    if not settings.ALIMAIL_APP_ID or not settings.ALIMAIL_APP_SECRET:
+        logger.warning(f"阿里邮箱API未配置，无法实时查找: work_item={item_id}")
+        return EmailUrlResponse(
+            url=None,
+            error="邮箱接口未配置（ALIMAIL_APP_ID / ALIMAIL_APP_SECRET 为空），暂时无法定位原邮件",
+            search_url=_build_email_search_url(item.email_subject, item.title, user_email),
+        )
     # 获取 internetMessageId
     internet_message_id = None
     if item.message_id:
