@@ -131,7 +131,8 @@ async def list_work_items(
     """获取工作项列表"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -176,7 +177,8 @@ async def list_my_work_items(
     """获取当前用户的工作项"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -278,7 +280,8 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -485,7 +488,8 @@ async def create_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -513,7 +517,8 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -585,7 +590,8 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -619,7 +625,8 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),
@@ -652,7 +659,8 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
-        selectinload(WorkItem.sponsor),
+        selectinload(WorkItem.sponsor).selectinload(User.district),
+        selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.district),
             selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.operator),

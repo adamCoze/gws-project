@@ -251,6 +251,39 @@ async def _run_migrations():
                     logger.info(f"迁移 v11：{null_count} 条 assessments 记录 no_objection_confirmations 置为 '[]'")
                 new_version = 11
 
+            # ---- v12: assessments.sponsor_id 改为可空（支持无主办人工作项发起考核）----
+            # SQLite 不支持 ALTER COLUMN，需按原 DDL 重建表：抓原建表语句 → 去掉 sponsor_id 的 NOT NULL
+            # → 建新表 → 复制数据 → 删旧表 → 改名 → 重建索引
+            if current_version < 12:
+                row = await session.execute(text(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='assessments'"
+                ))
+                old_ddl = row.scalar()
+                if old_ddl and "sponsor_id INTEGER NOT NULL" in old_ddl:
+                    idx_rows = await session.execute(text(
+                        "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='assessments' AND sql IS NOT NULL"
+                    ))
+                    idx_ddls = [r[0] for r in idx_rows.fetchall()]
+                    col_rows = await session.execute(text("PRAGMA table_info(assessments)"))
+                    col_list = ", ".join(r[1] for r in col_rows.fetchall())
+
+                    new_ddl = old_ddl.replace(
+                        "CREATE TABLE assessments", "CREATE TABLE assessments_v12_tmp", 1
+                    ).replace("sponsor_id INTEGER NOT NULL", "sponsor_id INTEGER")
+
+                    await session.execute(text(new_ddl))
+                    await session.execute(text(
+                        f"INSERT INTO assessments_v12_tmp ({col_list}) SELECT {col_list} FROM assessments"
+                    ))
+                    await session.execute(text("DROP TABLE assessments"))
+                    await session.execute(text(
+                        "ALTER TABLE assessments_v12_tmp RENAME TO assessments"
+                    ))
+                    for ddl in idx_ddls:
+                        await session.execute(text(ddl))
+                    logger.info("迁移 v12：assessments.sponsor_id 已改为可空（重建表并重建索引）")
+                new_version = 12
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

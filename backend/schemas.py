@@ -598,7 +598,7 @@ class AssessmentListItemOut(BaseModel):
     status: str
     status_text: str = ""
     current_level: Optional[str] = None
-    sponsor_id: int
+    sponsor_id: Optional[int] = None   # 无主办人工作项的考核允许为空
     sponsor_name: Optional[str] = None
     department_name: Optional[str] = None
     district_name: Optional[str] = None
@@ -660,7 +660,7 @@ class AssessmentDetailOut(BaseModel):
     supplement_by_level: Optional[str] = None
     initiator_id: int
     initiator_name: Optional[str] = None
-    sponsor_id: int
+    sponsor_id: Optional[int] = None   # 无主办人工作项的考核允许为空
     sponsor_name: Optional[str] = None
     department_id: int
     department_name: Optional[str] = None

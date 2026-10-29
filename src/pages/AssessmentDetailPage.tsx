@@ -249,7 +249,7 @@ const AssessmentDetailPage: React.FC = () => {
         <Descriptions column={3} size="small">
           <Descriptions.Item label="部门">{detail.department_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="区域">{detail.district_name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="责任人">{detail.sponsor_name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="责任人">{detail.sponsor_name || '无主办人（部门代管）'}</Descriptions.Item>
           <Descriptions.Item label="发起人">{detail.initiator_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="发起时间">{fmt(detail.initiated_at)}</Descriptions.Item>
           <Descriptions.Item label="完结时间">{fmt(detail.completed_at)}</Descriptions.Item>

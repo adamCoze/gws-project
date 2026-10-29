@@ -331,7 +331,9 @@ class Assessment(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
     initiator_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    sponsor_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # 主办人可空：工作项无主办人（识别不出 / 原主办人已离职）时，
+    # 由所属部门总监发起考核，考核记录保留空主办人，区域按发起人区域归属
+    sponsor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=False, index=True)
     district_id = Column(Integer, ForeignKey("districts.id"), nullable=True, index=True)
     status = Column(String(30), nullable=False, index=True)

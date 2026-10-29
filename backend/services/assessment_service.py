@@ -149,11 +149,15 @@ async def get_work_item_district_id(
     db: AsyncSession,
     work_item: WorkItem,
     sponsor: Optional[User] = None,
+    fallback_user: Optional[User] = None,
 ) -> int:
     """获取工作项的归属区域。
 
-    规则：以负责人（sponsor）的区域为准；如果负责人没有区域
-    （集团总监、监察主任、部门总监等总部角色），默认归香港区。
+    规则（按优先级）：
+    1. 主办人（sponsor）有区域 → 用主办人区域
+    2. 主办人无区域（集团总监、监察主任、部门总监等总部角色）→ 默认香港区
+    3. 工作项无主办人 → 用 fallback_user（发起考核的部门总监/规管）的区域，
+       发起人无区域则默认香港区
     """
     if sponsor is None and work_item.sponsor_id:
         result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
@@ -162,7 +166,11 @@ async def get_work_item_district_id(
     if sponsor and sponsor.district_id:
         return sponsor.district_id
 
-    # 负责人无区域 → 默认香港区
+    # 无主办人场景：由发起人（部门主管）的区域决定归属
+    if sponsor is None and fallback_user is not None and fallback_user.district_id:
+        return fallback_user.district_id
+
+    # 主办人无区域 / 无主办人且发起人无区域 → 默认香港区
     return HONGKONG_DISTRICT_ID
 
 
@@ -175,13 +183,14 @@ async def calculate_skip_rules(
     db: AsyncSession,
     work_item: WorkItem,
     sponsor: Optional[User] = None,
+    fallback_user: Optional[User] = None,
 ) -> Tuple[bool, bool, bool, str]:
     if sponsor is None:
         result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
         sponsor = result.scalar_one_or_none()
 
     if not sponsor:
-        return False, False, False, "无法获取主办人信息"
+        return False, False, False, "工作项无主办人，不适用跳过规则，走完整评审流程"
 
     sponsor_level = sponsor.role_level or 2
     sponsor_dept = sponsor.department_id
@@ -224,7 +233,7 @@ async def calculate_skip_rules(
 
     # 自动跳过：该区域无区总账号时，跳过区总评分层
     if not skip_district:
-        district_id = await get_work_item_district_id(db, work_item, sponsor)
+        district_id = await get_work_item_district_id(db, work_item, sponsor, fallback_user=fallback_user)
         has_dm = await district_has_district_manager(db, district_id)
         if not has_dm:
             skip_district = True
@@ -493,6 +502,9 @@ async def initiate_assessment(
                 raise ValueError("无权限发起其他部门的考核")
         elif level >= RoleLevel.DISTRICT_MANAGER:
             # 区总只能发起本区域的（含附加角色中的区域），工作项区域=sponsor区域
+            # 无主办人的工作项由所属部门总监发起，区总不参与
+            if not work_item.sponsor_id:
+                raise ValueError("该工作项无主办人，需由所属部门总监发起考核")
             wi_district_id = await get_work_item_district_id(db, work_item)
             district_ids = _get_district_ids_for_role(initiator, RoleLevel.DISTRICT_MANAGER)
             if wi_district_id not in district_ids:
@@ -510,11 +522,11 @@ async def initiate_assessment(
 
     # 计算跳过规则
     skip_dept, skip_district, skip_regulator, skip_reason = await calculate_skip_rules(
-        db, work_item, sponsor
+        db, work_item, sponsor, fallback_user=initiator
     )
 
-    # 获取区域ID（按负责人区域定，无区域默认香港区）
-    district_id = await get_work_item_district_id(db, work_item, sponsor)
+    # 获取区域ID（主办人区域优先；无主办人时用发起人区域，都没有则香港区）
+    district_id = await get_work_item_district_id(db, work_item, sponsor, fallback_user=initiator)
 
     # 确定初始状态
     initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
@@ -538,13 +550,14 @@ async def initiate_assessment(
     await db.flush()
 
     # 操作日志
+    no_sponsor_note = "；工作项无主办人，由发起人所在部门代管" if not work_item.sponsor_id else ""
     await add_operation_log(
         db,
         assessment_id=assessment.id,
         work_item_id=work_item.id,
         operator_id=initiator.id,
         action="initiate",
-        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}",
+        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}{no_sponsor_note}",
     )
 
     await db.commit()
@@ -786,7 +799,10 @@ def _get_group_participant_ids(assessment: Assessment) -> set:
 
 def _get_appeal_eligible_user_ids(assessment: Assessment) -> set:
     """可发起异议/确认无异议的人员：主办人 + 最终层参与人"""
-    return _get_group_participant_ids(assessment) | {assessment.sponsor_id}
+    ids = _get_group_participant_ids(assessment)
+    if assessment.sponsor_id:
+        ids.add(assessment.sponsor_id)
+    return ids
 
 
 def _calc_my_score(assessment: Assessment, user_id: int) -> Optional[float]:
@@ -1207,8 +1223,12 @@ async def submit_supplement(
     if assessment.status != AssessmentStatus.pending_supplement.value:
         raise ValueError("当前状态不需要补充凭证")
 
-    # 只能主办人补充
-    if assessment.sponsor_id != user.id and _get_effective_role_level(user) < RoleLevel.REGULATOR:
+    # 主办人补充；无主办人的考核由部门总监（含附加角色）或规管代补
+    level_now = _get_effective_role_level(user)
+    can_supplement = assessment.sponsor_id == user.id
+    if not can_supplement and assessment.sponsor_id is None and level_now >= RoleLevel.DEPT_DIRECTOR:
+        can_supplement = True
+    if not can_supplement and level_now < RoleLevel.REGULATOR:
         raise ValueError("无权限：只能由主办人提交补充凭证")
 
     # 获取补充请求
@@ -1426,8 +1446,8 @@ async def mark_non_assessment(
             if work_item.department_id not in dept_ids:
                 raise ValueError("无权限：只能标记本部门的工作项")
         elif level >= RoleLevel.DISTRICT_MANAGER:
-            # 工作项区域 = sponsor 区域，无区域默认香港
-            wi_district_id = await get_work_item_district_id(db, work_item)
+            # 工作项区域 = sponsor 区域，无区域默认香港；无主办人时用操作人区域兜底
+            wi_district_id = await get_work_item_district_id(db, work_item, fallback_user=user)
             district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
             if wi_district_id not in district_ids:
                 raise ValueError("无权限：只能标记本区域的工作项")

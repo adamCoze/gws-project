@@ -114,7 +114,10 @@ const PendingAssessmentPage: React.FC = () => {
     },
     { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 140, render: (v) => v || '-' },
     { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 120, render: (v) => v || '-' },
-    { title: '责任人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 120, render: (v) => v || '-' },
+    {
+      title: '责任人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 130,
+      render: (v) => v || <Tag color="orange">无主办人</Tag>,
+    },
     {
       title: '完成时间',
       dataIndex: 'completed_at',
