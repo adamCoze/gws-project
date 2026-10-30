@@ -539,16 +539,10 @@ async def _process_email(
                 # 合并到已有工作项：更新内容、责任人、状态
                 logger.info(f"合并邮件到工作项 #{matching_item.id}")
                 matching_item.content = analysis.get("summary", matching_item.content)
-                new_prefix = analysis.get("assignee_prefix", matching_item.assignee_email_prefix)
-                matching_item.assignee_email_prefix = new_prefix
-                # Also update assignee_id if single assignee
-                if new_prefix and ',' not in new_prefix and not matching_item.assignee_id:
-                    user_result = await db.execute(
-                        select(User).where(User.email_prefix == new_prefix)
-                    )
-                    user = user_result.scalar_one_or_none()
-                    if user:
-                        matching_item.assignee_id = user.id
+                # 注意：合并邮件不更新负责人（assignee）和主办人（sponsor）。
+                # 主办人/负责人以最早（创建）邮件为准：主办人=最早邮件发起人，
+                # 会签类的负责人=创建邮件提取的签署人名单。
+                # 若随后续邮件更新，会覆盖签署人名单、导致主办人漂移到回复人。
                 if due_date:
                     matching_item.due_date = due_date
                 # 状态只升级，不降级（completed > pending）
