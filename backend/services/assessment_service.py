@@ -22,6 +22,7 @@ from models import (
     AssessmentAppeal,
     NonAssessmentItem,
     AssessmentOperationLog,
+    EmailUrlCache,
     WorkItem,
     WorkItemStatus,
     User,
@@ -31,6 +32,56 @@ from models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ======================================================================
+# 邮件链接（待考核列表 / 考核详情批量填充）
+# ======================================================================
+
+
+def build_conversation_url(conversation_id: str) -> str:
+    """用会话ID拼阿里邮箱跳转URL（与 work_items.email-url 同规则）"""
+    import base64 as b64
+    import json as json_mod
+    from config import settings
+    payload = json_mod.dumps({"id": conversation_id, "type": "session"})
+    encoded = b64.b64encode(payload.encode()).decode()
+    return f"{settings.ALIMAIL_WEBMAIL_BASE}{encoded}"
+
+
+async def get_email_url_map(db, user_email, work_item_ids) -> dict:
+    """批量获取工作项的邮件链接：
+    1) 优先用当前用户自己的 found 缓存（自己邮箱内的会话）
+    2) 回退到任意用户的 found 缓存（历史/迁移数据，系统邮箱代查的会话）
+    未命中的工作项不出现在返回 map 中（前端显示不可点图标，走详情/单条接口兜底）
+    """
+    ids = [i for i in set(work_item_ids or []) if i is not None]
+    if not ids:
+        return {}
+    result: dict = {}
+    rows = (await db.execute(
+        select(EmailUrlCache).where(
+            EmailUrlCache.user_email == user_email,
+            EmailUrlCache.work_item_id.in_(ids),
+            EmailUrlCache.status == "found",
+            EmailUrlCache.conversation_id.isnot(None),
+        )
+    )).scalars().all()
+    for r in rows:
+        result[r.work_item_id] = build_conversation_url(r.conversation_id)
+    missing = [i for i in ids if i not in result]
+    if missing:
+        rows2 = (await db.execute(
+            select(EmailUrlCache).where(
+                EmailUrlCache.work_item_id.in_(missing),
+                EmailUrlCache.status == "found",
+                EmailUrlCache.conversation_id.isnot(None),
+            )
+        )).scalars().all()
+        for r in rows2:
+            if r.work_item_id not in result:
+                result[r.work_item_id] = build_conversation_url(r.conversation_id)
+    return result
 
 
 # ======================================================================

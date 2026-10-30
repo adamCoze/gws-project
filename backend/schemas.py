@@ -675,6 +675,7 @@ class AssessmentDetailOut(BaseModel):
     completed_at: Optional[datetime] = None
     has_email: bool = False
     email_message_id: Optional[str] = None
+    email_url: Optional[str] = None   # 原邮件跳转链接（缓存命中才有，未命中前端显示不可点图标）
     no_objection_confirmations: List[int] = []   # 已确认无异议的user_id列表（旧数据NULL容错转[]）
 
     @field_validator("no_objection_confirmations", mode="before")

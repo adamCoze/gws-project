@@ -101,11 +101,11 @@ const PendingAssessmentPage: React.FC = () => {
         <Space>
           <Text strong>{title}</Text>
           {record.has_email && (
-            <Tooltip title="关联邮件">
+            <Tooltip title={record.email_url ? '打开关联邮件' : '暂无邮件链接'}>
               {record.email_url ? (
                 <a href={record.email_url} target="_blank" rel="noreferrer"><MailOutlined /></a>
               ) : (
-                <MailOutlined style={{ color: '#1677ff' }} />
+                <MailOutlined style={{ color: '#d9d9d9', cursor: 'not-allowed' }} />
               )}
             </Tooltip>
           )}

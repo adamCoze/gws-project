@@ -64,6 +64,7 @@ from services.assessment_service import (
     export_assessments_excel,
     get_personal_score_summary,
     export_personal_score_excel,
+    get_email_url_map,
 )
 
 logger = logging.getLogger(__name__)
@@ -107,11 +108,20 @@ async def list_pending_items(
     total, items = await get_pending_items(
         db, current_user, page, page_size, keyword, department_id, district_id, month
     )
+    # 批量填充邮件链接（当前用户缓存优先，回退任意用户 found 缓存）
+    url_map = await get_email_url_map(
+        db, current_user.email, [it.id for it in items]
+    )
+    out_items = []
+    for item in items:
+        out = _to_pending_item_out(item)
+        out["email_url"] = url_map.get(item.id)
+        out_items.append(out)
     return {
         "total": total,
         "page": page,
         "page_size": page_size,
-        "items": [_to_pending_item_out(item) for item in items],
+        "items": out_items,
     }
 
 
@@ -601,6 +611,11 @@ async def get_assessment_api(
         ]
     detail.can_appeal = _can_user_appeal(assessment, current_user.id)
     detail.current_user_confirmed = current_user.id in confirmations
+
+    # 邮件链接：当前用户缓存优先，回退任意用户 found 缓存
+    if assessment.work_item_id:
+        url_map = await get_email_url_map(db, current_user.email, [assessment.work_item_id])
+        detail.email_url = url_map.get(assessment.work_item_id)
 
     # 脱敏：AI审查意见、各层补充意见仅监察主任及以上可见；员工仅见自己的异议理由与裁定结果
     from models import RoleLevel as _RL
