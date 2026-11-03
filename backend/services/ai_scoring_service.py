@@ -82,6 +82,20 @@ def advance_status_after_ai(assessment: Assessment) -> None:
         assessment.current_level = ScoreLevel.district.value
 
 
+def _normalize_dept_name(name: str) -> str:
+    """把系统部门名（如「行政/产品」「财审/投资」）规范为手册口径（行政部/财审部），
+    避免 AI 因部门名称与手册不一致而找不到对应条目。"""
+    raw = (name or "").strip()
+    if not raw:
+        return raw
+    head = raw.split("/")[0].split("／")[0].strip()
+    if head.endswith("部"):
+        return f"{head}（系统部门名：{raw}）" if head != raw else head
+    if head in ("财审", "行政", "法务", "人事"):
+        return f"{head}部（系统部门名：{raw}）"
+    return raw
+
+
 async def _build_scoring_input(db: AsyncSession, assessment: Assessment) -> str:
     """组装评分输入：工作项目名称、内容、部门、邮件时间线（事中留存，11.1）"""
     wi = assessment.work_item
@@ -92,7 +106,7 @@ async def _build_scoring_input(db: AsyncSession, assessment: Assessment) -> str:
         if wi.content:
             parts.append(f"工作内容：{wi.content[:2000]}")
         if wi.department and getattr(wi.department, "name", None):
-            parts.append(f"所属部门：{wi.department.name}")
+            parts.append(f"所属部门：{_normalize_dept_name(wi.department.name)}")
 
         # 关联邮件时间线（正文留存 or 主题降级）
         result = await db.execute(
