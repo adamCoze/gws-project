@@ -2449,7 +2449,7 @@ async def get_my_error_bonus_summary(
             "bonus_status": b.status,
             "status_name": status_names.get(b.status, b.status),
             "created_at": b.created_at.isoformat() if b.created_at else None,
-            "settled_at": b.settled_at.isoformat() if b.settled_at else None,
+            "settled_at": b.updated_at.isoformat() if (b.status in ("confirmed", "retracted") and b.updated_at) else None,
         })
         if b.status in summary:
             summary[b.status] += 1
