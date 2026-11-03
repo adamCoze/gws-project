@@ -174,6 +174,7 @@ async def initiate_assessment_api(
 
     status_text = {
         AssessmentStatus.pending_dept_confirm.value: "待部门总监确认",
+        AssessmentStatus.ai_scoring.value: "AI评分中",
         AssessmentStatus.pending_district_score.value: "待区总评分",
         AssessmentStatus.pending_regulator_score.value: "待监察主任评分",
         AssessmentStatus.pending_group_score.value: "待集团总监评分",
