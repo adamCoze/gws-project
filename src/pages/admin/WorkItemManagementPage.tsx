@@ -47,6 +47,7 @@ const WorkItemManagementPage: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDept, setFilterDept] = useState<number | undefined>(undefined);
   const [filterAssignee, setFilterAssignee] = useState<number | undefined>(undefined);
+  const [filterSponsor, setFilterSponsor] = useState<number | undefined>(undefined);
 
   // Unified sort state
   const [sortField, setSortField] = useState<string | null>(null);
@@ -148,6 +149,9 @@ const WorkItemManagementPage: React.FC = () => {
         );
       }
     }
+    if (filterSponsor) {
+      result = result.filter((i) => i.sponsor_id === filterSponsor);
+    }
 
     // Sorting
     if (sortField && sortOrder) {
@@ -198,7 +202,7 @@ const WorkItemManagementPage: React.FC = () => {
     }
 
     return result;
-  }, [items, filterType, filterStatus, filterDept, filterAssignee, sortField, sortOrder, users]);
+  }, [items, filterType, filterStatus, filterDept, filterAssignee, filterSponsor, sortField, sortOrder, users]);
 
   const resolveAssigneeIds = (item: WorkItem): number[] => {
     if (item.assignee_email_prefix) {
@@ -387,12 +391,13 @@ const WorkItemManagementPage: React.FC = () => {
     setFilterStatus(undefined);
     setFilterDept(undefined);
     setFilterAssignee(undefined);
+    setFilterSponsor(undefined);
     setSortField(null);
     setSortOrder(null);
   };
 
 
-  const hasActiveFilters = filterType || filterStatus || filterDept || filterAssignee || sortField;
+  const hasActiveFilters = filterType || filterStatus || filterDept || filterAssignee || filterSponsor || sortField;
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -511,6 +516,18 @@ const WorkItemManagementPage: React.FC = () => {
               placeholder="负责人"
               value={filterAssignee}
               onChange={setFilterAssignee}
+              style={{ width: 140 }}
+              optionFilterProp="label"
+              options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
+              showSearch
+              placeholder="主办人"
+              value={filterSponsor}
+              onChange={setFilterSponsor}
               style={{ width: 140 }}
               optionFilterProp="label"
               options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}

@@ -284,6 +284,23 @@ async def _run_migrations():
                     logger.info("迁移 v12：assessments.sponsor_id 已改为可空（重建表并重建索引）")
                 new_version = 12
 
+            # ---- v13: AI 初评字段 + 指错得分表（PRD 6.7 / 11.8 / 指错得分两阶段）----
+            if current_version < 13:
+                for col_ddl in (
+                    "ALTER TABLE assessments ADD COLUMN ai_score INTEGER",
+                    "ALTER TABLE assessments ADD COLUMN ai_reason TEXT",
+                    "ALTER TABLE assessments ADD COLUMN ai_basis TEXT",
+                    "ALTER TABLE assessments ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'none'",
+                    "ALTER TABLE assessments ADD COLUMN ai_scored_at DATETIME",
+                ):
+                    # 列名从 DDL 提取以做存在性检查
+                    col_name = col_ddl.split("ADD COLUMN ")[1].split()[0]
+                    if not await _column_exists("assessments", col_name):
+                        await session.execute(text(col_ddl))
+                # 新表 assessment_error_bonuses 由启动时 create_all 自动创建
+                logger.info("迁移 v13：assessments 表新增 AI 初评 5 字段；指错得分表随 create_all 创建")
+                new_version = 13
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

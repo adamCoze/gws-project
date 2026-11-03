@@ -272,6 +272,7 @@ class EmailUrlCache(Base):
 class AssessmentStatus(str, Enum):
     """考核状态枚举"""
     pending_dept_confirm = "pending_dept_confirm"       # 待部门总监确认
+    ai_scoring = "ai_scoring"                           # AI评分中（固定环节，见6.7）
     pending_district_score = "pending_district_score"   # 待区总评分
     pending_regulator_score = "pending_regulator_score" # 待监察主任评分
     pending_group_score = "pending_group_score"         # 待集团总监评分
@@ -345,6 +346,12 @@ class Assessment(Base):
     skip_regulator_score = Column(Boolean, default=False, nullable=False)
     appeal_deadline = Column(DateTime, nullable=True, index=True)
     final_score = Column(Float, nullable=True)  # 最终得分（集团总监总分）
+    # AI 初评（PRD 6.7 / 11.8）：固定环节，手册标准分（通常 1 或 5），高档位留给区总
+    ai_score = Column(Integer, nullable=True)             # AI 建议得分（标准未明确时为 None）
+    ai_reason = Column(Text, nullable=True)              # 评分理由（≤100字）
+    ai_basis = Column(Text, nullable=True)               # 依据条款（引用手册条目）
+    ai_status = Column(String(20), default="none", nullable=False)  # none/scoring/completed/failed
+    ai_scored_at = Column(DateTime, nullable=True)       # 评分完成时间
     no_objection_confirmations = Column(JSON, default=list, nullable=False)  # 已确认无异议的user_id列表
     initiated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     completed_at = Column(DateTime, nullable=True)
@@ -512,6 +519,39 @@ class NonAssessmentItem(Base):
     work_item = relationship("WorkItem", back_populates="non_assessment_item")
     marker = relationship("User", foreign_keys=[marked_by])
     revoker = relationship("User", foreign_keys=[revoked_by])
+
+
+class AssessmentErrorBonus(Base):
+    """考核指错得分（监察主任/集团总监独立判断加分）
+
+    规则：评分 ≠ 上一环节分 → 提交时预记 +1（tentative）；
+    总裁裁定后结算：评分 == 裁定分 → confirmed（保留），否则 retracted（扣回，bonus 置 0）。
+    无异议完结项裁定分 = 集团总监分。
+    参照链：监察的上一环节 = 区总分（跳过则 AI 分）；集团总监的上一环节 = 监察分（跳过则区总分，再跳过则 AI 分）。
+    """
+    __tablename__ = "assessment_error_bonuses"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    assessment_id = Column(Integer, ForeignKey("assessments.id"), nullable=False, index=True)
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # 得分人
+    level = Column(String(20), nullable=False)          # regulator / group
+    bonus = Column(Integer, default=1, nullable=False)  # 当前有效加分（tentative/confirmed=1，retracted=0）
+    status = Column(String(20), default="tentative", nullable=False)  # tentative/confirmed/retracted
+    prev_level_score = Column(Integer, nullable=True)   # 上一环节分（参照）
+    own_score = Column(Integer, nullable=False)         # 本人评分
+    ruling_score = Column(Integer, nullable=True)       # 裁定分（结算时填）
+    month = Column(String(7), nullable=False, index=True)  # 归属月 YYYY-MM（按考核发起时间）
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    assessment = relationship("Assessment", foreign_keys=[assessment_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "user_id", "level", name="uq_error_bonus_assessment_user_level"),
+        {"sqlite_autoincrement": True},
+    )
 
 
 class AssessmentOperationLog(Base):

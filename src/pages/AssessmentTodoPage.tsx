@@ -174,7 +174,7 @@ const AssessmentTodoPage: React.FC = () => {
     },
     { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 130, render: (v) => v || '-' },
     { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 110, render: (v) => v || '-' },
-    { title: '责任人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 110, render: (v) => v || '-' },
+    { title: '主办人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 110, render: (v) => v || '-' },
     { title: '发起人', dataIndex: 'initiator_name', key: 'initiator_name', width: 110, render: (v) => v || '-' },
     {
       title: '状态',
@@ -403,7 +403,7 @@ const AssessmentTodoPage: React.FC = () => {
         destroyOnClose
       >
         <Paragraph>
-          要求责任人 <Text strong>{supplementTarget?.sponsor_name || ''}</Text> 为
+          要求主办人 <Text strong>{supplementTarget?.sponsor_name || ''}</Text> 为
           <Text strong> {supplementTarget?.work_item_title} </Text>
           补充凭证，考核将进入「待补充凭证」状态。
         </Paragraph>

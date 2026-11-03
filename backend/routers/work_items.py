@@ -123,6 +123,7 @@ async def list_work_items(
     department_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     assignee_email_prefix: Optional[str] = None,
+    sponsor_id: Optional[int] = None,
     keyword: Optional[str] = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
@@ -147,6 +148,8 @@ async def list_work_items(
         query = query.where(WorkItem.department_id == department_id)
     if assignee_id:
         query = query.where(WorkItem.assignee_id == assignee_id)
+    if sponsor_id:
+        query = query.where(WorkItem.sponsor_id == sponsor_id)
     if assignee_email_prefix:
         # 支持多个邮箱前缀（逗号分隔）
         email_prefixes = [ep.strip() for ep in assignee_email_prefix.split(',')]

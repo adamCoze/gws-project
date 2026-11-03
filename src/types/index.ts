@@ -236,6 +236,7 @@ export interface LoginResponse {
 
 // 考核状态机
 export type AssessmentStatus =
+  | 'ai_scoring'
   | 'pending_dept_confirm'       // 待部门总监确认
   | 'pending_district_score'     // 待区总评分
   | 'pending_regulator_score'    // 待监察主任评分
@@ -250,6 +251,7 @@ export type AssessmentStatus =
 
 export const ASSESSMENT_STATUS_LABELS: Record<string, string> = {
   pending_dept_confirm: '待部门总监确认',
+  ai_scoring: 'AI评分中',
   pending_district_score: '待区总评分',
   pending_regulator_score: '待监察主任评分',
   pending_group_score: '待集团总监评分',
@@ -264,6 +266,7 @@ export const ASSESSMENT_STATUS_LABELS: Record<string, string> = {
 
 export const ASSESSMENT_STATUS_COLORS: Record<string, string> = {
   pending_dept_confirm: 'gold',
+  ai_scoring: 'cyan',
   pending_district_score: 'processing',
   pending_regulator_score: 'processing',
   pending_group_score: 'processing',
@@ -424,6 +427,12 @@ export interface AssessmentDetail {
   completed_at?: string | null;
   has_email?: boolean;
   email_url?: string | null;
+  // AI 初评（PRD 6.7/11.8）
+  ai_score?: number | null;
+  ai_reason?: string | null;
+  ai_basis?: string | null;
+  ai_status?: string | null;    // none/scoring/completed/failed
+  ai_scored_at?: string | null;
   // 无异议确认相关
   no_objection_confirmations?: number[];  // 已确认无异议的user_id
   no_objection_names?: string[];          // 已确认无异议人员姓名
@@ -434,6 +443,23 @@ export interface AssessmentDetail {
   attachments?: AssessmentAttachment[];
   appeal?: AppealInfo | null;
   operation_logs?: AssessmentOperationLog[];
+}
+
+// 考核指错得分（PRD 6.7.2：监察/集团总监独判命中总裁裁定 +1）
+export interface ErrorBonusItem {
+  id: number;
+  assessment_id: number;
+  work_item_id?: number | null;
+  title: string;
+  level: 'regulator' | 'group';
+  level_name?: string;
+  score: number;
+  prev_score?: number | null;
+  ruling_score?: number | null;
+  bonus_status: 'tentative' | 'confirmed' | 'retracted';
+  status_name?: string;
+  created_at?: string | null;
+  settled_at?: string | null;
 }
 
 // AI 审查意见

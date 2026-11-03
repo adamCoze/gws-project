@@ -160,6 +160,7 @@ class WorkItemUpdate(BaseModel):
     item_type: Optional[str] = None
     status: Optional[str] = None
     department_id: Optional[int] = None
+    sponsor_id: Optional[int] = None      # 主办人（所有登录用户可改，B3 维持现状）
     assignee_id: Optional[int] = None
     assignee_email_prefix: Optional[str] = None
     due_date: Optional[datetime] = None
@@ -611,6 +612,8 @@ class AssessmentListItemOut(BaseModel):
     can_appeal: bool = False              # 当前用户是否可发起异议/确认无异议
     no_objection_confirmed: bool = False  # 当前用户是否已确认无异议
     no_objection_names: Optional[str] = None  # 已确认无异议人员名单（顿号分隔）
+    ai_score: Optional[int] = None       # AI 初评建议分（手册标准分，PRD 6.7）
+    ai_status: Optional[str] = None      # none/scoring/completed/failed
 
     class Config:
         from_attributes = True
@@ -631,6 +634,7 @@ class AssessmentListItemOut(BaseModel):
         from models import AssessmentStatus
         status_map = {
             AssessmentStatus.pending_dept_confirm.value: "待部门总监确认",
+            AssessmentStatus.ai_scoring.value: "AI评分中",
             AssessmentStatus.pending_district_score.value: "待区总评分",
             AssessmentStatus.pending_regulator_score.value: "待监察主任评分",
             AssessmentStatus.pending_group_score.value: "待集团总监评分",
@@ -676,6 +680,12 @@ class AssessmentDetailOut(BaseModel):
     has_email: bool = False
     email_message_id: Optional[str] = None
     email_url: Optional[str] = None   # 原邮件跳转链接（缓存命中才有，未命中前端显示不可点图标）
+    # AI 初评（PRD 6.7/11.8）：手册标准分（1 或 5），标准未明确为 None
+    ai_score: Optional[int] = None
+    ai_reason: Optional[str] = None
+    ai_basis: Optional[str] = None
+    ai_status: Optional[str] = None   # none/scoring/completed/failed
+    ai_scored_at: Optional[datetime] = None
     no_objection_confirmations: List[int] = []   # 已确认无异议的user_id列表（旧数据NULL容错转[]）
 
     @field_validator("no_objection_confirmations", mode="before")
@@ -713,6 +723,7 @@ class AssessmentDetailOut(BaseModel):
         from models import AssessmentStatus
         status_map = {
             AssessmentStatus.pending_dept_confirm.value: "待部门总监确认",
+            AssessmentStatus.ai_scoring.value: "AI评分中",
             AssessmentStatus.pending_district_score.value: "待区总评分",
             AssessmentStatus.pending_regulator_score.value: "待监察主任评分",
             AssessmentStatus.pending_group_score.value: "待集团总监评分",

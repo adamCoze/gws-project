@@ -101,12 +101,13 @@ async def list_pending_items(
     department_id: Optional[int] = None,
     district_id: Optional[int] = None,
     month: Optional[str] = None,
+    sponsor_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """待考核项清单（已完成、未发起考核、未标记非考核项）"""
+    """待考核项清单（已完成、未发起考核、未标记非考核项），支持按主办人筛选"""
     total, items = await get_pending_items(
-        db, current_user, page, page_size, keyword, department_id, district_id, month
+        db, current_user, page, page_size, keyword, department_id, district_id, month, sponsor_id
     )
     # 批量填充邮件链接（当前用户缓存优先，回退任意用户 found 缓存）
     url_map = await get_email_url_map(
@@ -464,6 +465,23 @@ async def my_assessments_api(
         "page_size": page_size,
         "items": out_items,
     }
+
+
+@router.get("/my-error-bonuses", response_model=dict)
+async def my_error_bonuses_api(
+    month: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """我的考核指错得分（PRD 6.7.2）：监察主任/集团总监独判命中总裁裁定 +1/条
+
+    返回：
+    - summary: {pending, confirmed, reverted, total}（total=confirmed 得分）
+    - items: 逐条记录（工作项、打分、上一环节分、裁定分、状态、发生时间）
+    仅统计当前用户作为评分人的记录。
+    """
+    from services.assessment_service import get_my_error_bonus_summary
+    return await get_my_error_bonus_summary(db, current_user, month)
 
 
 # ======================================================================

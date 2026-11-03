@@ -16,7 +16,7 @@ interface Props {
 }
 
 /**
- * 补充凭证提交弹窗：责任人针对评分人发起的补充凭证请求提交说明与凭证
+ * 补充凭证提交弹窗：主办人针对评分人发起的补充凭证请求提交说明与凭证
  */
 const SupplementSubmitModal: React.FC<Props> = ({ open, assessmentId, request, onCancel, onSuccess }) => {
   const [response, setResponse] = useState('');

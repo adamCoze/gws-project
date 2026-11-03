@@ -36,7 +36,13 @@ _CONCLUSION_PATTERNS = [
 
 
 def _get_configured_bots() -> List[Tuple[int, str, str]]:
-    """读取已配置的审查 bot 列表：[(槽位, bot_id, 显示名)]"""
+    """读取已配置的审查 bot 列表：[(槽位, bot_id, 显示名)]
+
+    v0.6 单 Bot 双任务：优先读 GWS_AI_BOT_ID（评分+异议审查共用，PRD 11.3/11.5）；
+    未配置时降级兼容旧 3 槽位（APPEAL_REVIEW_BOT_*，仅 1 号槽位等效）。
+    """
+    if (settings.GWS_AI_BOT_ID or "").strip():
+        return [(1, settings.GWS_AI_BOT_ID.strip(), (settings.GWS_AI_BOT_NAME or "GWS考核AI助手").strip())]
     bots = []
     for idx in (1, 2, 3):
         bot_id = getattr(settings, f"APPEAL_REVIEW_BOT_{idx}_ID", "").strip()
@@ -60,7 +66,7 @@ def _parse_conclusion(opinion: str) -> Optional[str]:
 
 async def _build_review_input(db: AsyncSession, assessment: Assessment, appeal: AssessmentAppeal) -> str:
     """组装审查输入材料"""
-    parts = []
+    parts = ["【任务：异议审查】"]
 
     # 1. 工作项标题与当前描述
     wi = assessment.work_item
@@ -132,7 +138,7 @@ async def _call_coze_bot(bot_id: str, content: str) -> Optional[str]:
                 headers=headers,
                 json={
                     "bot_id": bot_id,
-                    "user_id": "gws-appeal-review",
+                    "user_id": "gws-ai-assistant",
                     "additional_messages": [
                         {"role": "user", "content": content, "content_type": "text"}
                     ],

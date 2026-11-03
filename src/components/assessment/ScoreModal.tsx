@@ -36,6 +36,7 @@ const ScoreModal: React.FC<Props> = ({ open, assessmentId, workItemTitle, levelL
   const [submitting, setSubmitting] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [previousScores, setPreviousScores] = useState<AssessmentScore[]>([]);
+  const [aiHint, setAiHint] = useState<{ score: number | null; reason?: string | null; basis?: string | null } | null>(null);
   let keySeed = React.useRef(0);
 
   useEffect(() => {
@@ -51,6 +52,11 @@ const ScoreModal: React.FC<Props> = ({ open, assessmentId, workItemTitle, levelL
       assessmentApi.detail(assessmentId)
         .then((detail: AssessmentDetail) => {
           setPreviousScores(detail.scores || []);
+          if (detail.ai_status === 'completed') {
+            setAiHint({ score: detail.ai_score ?? null, reason: detail.ai_reason, basis: detail.ai_basis });
+          } else {
+            setAiHint(null);
+          }
         })
         .catch(() => {})
         .finally(() => setDetailLoading(false));
@@ -182,6 +188,38 @@ const ScoreModal: React.FC<Props> = ({ open, assessmentId, workItemTitle, levelL
             </div>
             <Divider style={{ margin: '16px 0' }} />
           </>
+        )}
+
+        {aiHint && (
+          <div
+            style={{
+              padding: '8px 12px',
+              marginBottom: 8,
+              background: '#e6f7ff',
+              borderRadius: 4,
+              border: '1px solid #91d5ff',
+            }}
+          >
+            <Space wrap>
+              <Tag color="cyan">AI 初评建议</Tag>
+              {aiHint.score !== null ? (
+                <Text strong style={{ color: '#1677ff' }}>{aiHint.score} 分</Text>
+              ) : (
+                <Text type="secondary">标准未明确</Text>
+              )}
+              {aiHint.reason && (
+                <Text type="secondary" style={{ fontSize: 12 }}>{aiHint.reason}</Text>
+              )}
+            </Space>
+            {aiHint.basis && (
+              <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>依据条款：{aiHint.basis}</div>
+            )}
+            {aiHint.score !== null && totalScore === null && (
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => setTotalScore(aiHint.score!)}>
+                采用 AI 建议分
+              </Button>
+            )}
+          </div>
         )}
 
         <Text strong>总分</Text>

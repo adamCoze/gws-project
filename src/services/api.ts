@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog, PendingAssessmentItem, AssessmentListItem, AssessmentDetail, AssessmentAttachment, NonAssessmentItem, SkipRuleInfo, ScoreSubmitPayload } from '../types';
+import type { LoginRequest, LoginResponse, WorkItem, Department, District, User, EmailConfig, EmailLog, SystemConfig, StatusChangeLog, PendingAssessmentItem, AssessmentListItem, AssessmentDetail, AssessmentAttachment, NonAssessmentItem, SkipRuleInfo, ScoreSubmitPayload, ErrorBonusItem } from '../types';
 
 const api = axios.create({
   baseURL: '/api',
@@ -155,7 +155,11 @@ export const systemConfigApi = {
 // ============ 考核模块（需求v0.3完整版） ============
 export const assessmentApi = {
   // 待考核项清单
-  pendingItems: async (params?: { page?: number; page_size?: number; keyword?: string; department_id?: number; district_id?: number; month?: string }): Promise<{ items: PendingAssessmentItem[]; total: number }> => {
+  myErrorBonuses: async (params?: { month?: string }): Promise<{ summary: { tentative: number; confirmed: number; retracted: number; total: number }; items: ErrorBonusItem[] }> => {
+    const res = await api.get('/assessment/my-error-bonuses', { params });
+    return res as unknown as { summary: { tentative: number; confirmed: number; retracted: number; total: number }; items: ErrorBonusItem[] };
+  },
+  pendingItems: async (params?: { page?: number; page_size?: number; keyword?: string; department_id?: number; district_id?: number; month?: string; sponsor_id?: number }): Promise<{ items: PendingAssessmentItem[]; total: number }> => {
     const res = await api.get('/assessment/pending-items', { params });
     return res as unknown as { items: PendingAssessmentItem[]; total: number };
   },

@@ -249,7 +249,7 @@ const AssessmentDetailPage: React.FC = () => {
         <Descriptions column={3} size="small">
           <Descriptions.Item label="部门">{detail.department_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="区域">{detail.district_name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="责任人">{detail.sponsor_name || '无主办人（部门代管）'}</Descriptions.Item>
+          <Descriptions.Item label="主办人">{detail.sponsor_name || '无主办人（部门代管）'}</Descriptions.Item>
           <Descriptions.Item label="发起人">{detail.initiator_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="发起时间">{fmt(detail.initiated_at)}</Descriptions.Item>
           <Descriptions.Item label="完结时间">{fmt(detail.completed_at)}</Descriptions.Item>
@@ -272,6 +272,30 @@ const AssessmentDetailPage: React.FC = () => {
           <Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0, whiteSpace: 'pre-wrap' }}>
             {detail.work_item_content}
           </Paragraph>
+        )}
+      </Card>
+
+      <Card title="AI 初评" size="small" style={{ marginBottom: 16 }}>
+        {detail.ai_status === 'scoring' ? (
+          <Space><Spin size="small" /><Text type="secondary">AI 正在按《绩效考核判断手册》评分…</Text></Space>
+        ) : detail.ai_status === 'failed' ? (
+          <Tag color="default">AI未评分</Tag>
+        ) : detail.ai_status === 'completed' ? (
+          <div>
+            <Space style={{ marginBottom: 4 }}>
+              <Tag color="cyan">AI 建议得分</Tag>
+              {detail.ai_score !== null && detail.ai_score !== undefined ? (
+                <Text strong style={{ color: '#1677ff', fontSize: 16 }}>{detail.ai_score} 分</Text>
+              ) : (
+                <Tag>标准未明确</Tag>
+              )}
+              {detail.ai_scored_at && <Text type="secondary" style={{ fontSize: 12 }}>{fmt(detail.ai_scored_at)}</Text>}
+            </Space>
+            {detail.ai_reason && <Paragraph style={{ marginBottom: 4, whiteSpace: 'pre-wrap' }}>{detail.ai_reason}</Paragraph>}
+            {detail.ai_basis && <Text type="secondary" style={{ fontSize: 12 }}>依据条款：{detail.ai_basis}</Text>}
+          </div>
+        ) : (
+          <Text type="secondary">未启用 AI 初评</Text>
         )}
       </Card>
 

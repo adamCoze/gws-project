@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     APPEAL_REVIEW_BOT_3_ID: str = os.getenv("APPEAL_REVIEW_BOT_3_ID", "")
     APPEAL_REVIEW_BOT_3_NAME: str = os.getenv("APPEAL_REVIEW_BOT_3_NAME", "模型三")
 
+    # Coze AI (考核 AI 助手，单 Bot 双任务：AI 初评 + 异议审查，PRD 11.3/11.5)
+    # 优先级高于 APPEAL_REVIEW_BOT_*；未配置时 AI 评分跳过、审查降级旧槽位
+    GWS_AI_BOT_ID: str = os.getenv("GWS_AI_BOT_ID", "")
+    GWS_AI_BOT_NAME: str = os.getenv("GWS_AI_BOT_NAME", "GWS考核AI助手")
+
     # 邮件检查间隔（分钟）
     EMAIL_CHECK_INTERVAL: int = int(os.getenv("EMAIL_CHECK_INTERVAL", "5"))
 

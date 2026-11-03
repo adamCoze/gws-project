@@ -61,7 +61,7 @@ const NonAssessmentPage: React.FC = () => {
     },
     { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 140, render: (v) => v || '-' },
     { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 120, render: (v) => v || '-' },
-    { title: '责任人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 120, render: (v) => v || '-' },
+    { title: '主办人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 120, render: (v) => v || '-' },
     { title: '备注', dataIndex: 'remark', key: 'remark', ellipsis: true, render: (v) => v || '-' },
     { title: '标记人', dataIndex: 'marked_by_name', key: 'marked_by_name', width: 110, render: (v) => v || '-' },
     {

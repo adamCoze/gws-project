@@ -4,11 +4,11 @@ import { ReloadOutlined, UploadOutlined, ExclamationCircleOutlined, CheckOutline
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../types';
-import type { AssessmentListItem, SupplementRequest } from '../types';
+import type { AssessmentListItem, SupplementRequest, ErrorBonusItem } from '../types';
 import { assessmentApi } from '../services/api';
 import SupplementSubmitModal from '../components/assessment/SupplementSubmitModal';
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 /**
  * 我的考核：我主办或我参与的考核列表，含状态、考核总分与我的得分；
@@ -24,6 +24,9 @@ const MyAssessmentsPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
   const [monthFilter, setMonthFilter] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(false);
+  // 考核指错得分（PRD 6.7.2：监察主任/集团总监独判命中总裁裁定 +1）
+  const [errorBonus, setErrorBonus] = useState<{ summary: { tentative: number; confirmed: number; retracted: number; total: number }; items: ErrorBonusItem[] } | null>(null);
+  const [bonusModalOpen, setBonusModalOpen] = useState(false);
 
   // 近13个月选项（按发起时间筛选）
   const monthOptions = React.useMemo(() => {
@@ -88,6 +91,11 @@ const MyAssessmentsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+    // 指错得分（有记录才显示入口）
+    try {
+      const bonus = await assessmentApi.myErrorBonuses({ month: mo });
+      setErrorBonus(bonus && (bonus.summary.tentative + bonus.summary.confirmed + bonus.summary.retracted) > 0 ? bonus : null);
+    } catch { /* 未配置或无权限时静默 */ }
   };
 
   useEffect(() => {
@@ -231,6 +239,12 @@ const MyAssessmentsPage: React.FC = () => {
             onChange={(v) => { setMonthFilter(v); setPage(1); fetchData(1, pageSize, keyword, statusFilter, v); }}
             options={monthOptions}
           />
+          {errorBonus && (
+            <Button icon={<ExclamationCircleOutlined />} onClick={() => setBonusModalOpen(true)}>
+              考核指错得分：+{errorBonus.summary.total}
+              {errorBonus.summary.tentative > 0 && `（暂计${errorBonus.summary.tentative}）`}
+            </Button>
+          )}
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
         <Text type="secondary">我主办或我参与的考核记录</Text>
@@ -300,6 +314,51 @@ const MyAssessmentsPage: React.FC = () => {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="考核指错得分"
+        open={bonusModalOpen}
+        onCancel={() => setBonusModalOpen(false)}
+        footer={null}
+        width={860}
+      >
+        {errorBonus && (
+          <>
+            <Space style={{ marginBottom: 12 }}>
+              <Tag color="green">已证实 +{errorBonus.summary.confirmed}</Tag>
+              <Tag color="orange">暂计 +{errorBonus.summary.tentative}（总裁裁定后结算）</Tag>
+              <Tag>已扣回 {errorBonus.summary.retracted}</Tag>
+              <Text strong>合计 +{errorBonus.summary.total}</Text>
+            </Space>
+            <Table
+              size="small"
+              rowKey="id"
+              dataSource={errorBonus.items}
+              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
+              columns={[
+                { title: '工作项', dataIndex: 'title', key: 'title', ellipsis: true },
+                { title: '评分环节', dataIndex: 'level_name', key: 'level_name', width: 110 },
+                { title: '我的评分', dataIndex: 'score', key: 'score', width: 80 },
+                { title: '上一环节', dataIndex: 'prev_score', key: 'prev_score', width: 80, render: (v) => v ?? '-' },
+                { title: '裁定分', dataIndex: 'ruling_score', key: 'ruling_score', width: 80, render: (v) => v ?? '待裁定' },
+                {
+                  title: '状态', dataIndex: 'status_name', key: 'status_name', width: 80,
+                  render: (v, r: ErrorBonusItem) => (
+                    <Tag color={r.bonus_status === 'confirmed' ? 'green' : r.bonus_status === 'tentative' ? 'orange' : 'default'}>{v}</Tag>
+                  ),
+                },
+                {
+                  title: '发生时间', dataIndex: 'created_at', key: 'created_at', width: 150,
+                  render: (v) => (v ? new Date(v).toLocaleString('zh-CN', { hour12: false }) : '-'),
+                },
+              ]}
+            />
+            <Paragraph type="secondary" style={{ marginTop: 8, fontSize: 12, marginBottom: 0 }}>
+              规则：打分与上一环节不同、且与总裁最终裁定相同的，每项 +1。提交时暂计，总裁裁定后自动结算；无异议完结项以集团总监评分为裁定分。
+            </Paragraph>
+          </>
+        )}
       </Modal>
     </div>
   );

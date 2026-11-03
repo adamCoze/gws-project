@@ -20,6 +20,7 @@ from models import (
     AssessmentSupplementRequest,
     SupplementRequestStatus,
     AssessmentAppeal,
+    AssessmentErrorBonus,
     NonAssessmentItem,
     AssessmentOperationLog,
     EmailUrlCache,
@@ -260,17 +261,17 @@ async def calculate_skip_rules(
         reasons.append("主办人为集团总监")
         return skip_dept, skip_district, skip_regulator, "；".join(reasons)
 
-    # 主办人是部门总监/监察主任，且主办人部门 == 工作项部门
-    # → 跳过部门总监确认和区总评分，直接由监察主任开始评分
+    # v0.8 调整：部门总监/监察主任（L5-L6）主办，无条件跳过部门确认和区总评分
+    # （不再要求主办人部门 == 工作项部门，跨部门也跳）
+    # 监察主任主办不跳监察层（自评风险已由 Adam 确认接受，总裁裁定兜底）
     if sponsor_level >= RoleLevel.DEPT_DIRECTOR:
-        if sponsor_dept and work_item_dept and sponsor_dept == work_item_dept:
-            skip_dept = True
-            skip_district = True
-            if sponsor_level >= RoleLevel.REGULATOR:
-                reasons.append("主办人为监察主任及以上且同部门")
-            else:
-                reasons.append("主办人为部门总监且同部门")
-            return skip_dept, skip_district, skip_regulator, "；".join(reasons)
+        skip_dept = True
+        skip_district = True
+        if sponsor_level >= RoleLevel.REGULATOR:
+            reasons.append("主办人为监察主任，跳过部门确认与区总评分")
+        else:
+            reasons.append("主办人为部门总监，跳过部门确认与区总评分")
+        return skip_dept, skip_district, skip_regulator, "；".join(reasons)
 
     # 工作项由部门总监及以上确认完成 → 跳过部门总监确认环节
     if work_item.completed_by:
@@ -393,6 +394,7 @@ async def get_pending_items(
     department_id: Optional[int] = None,
     district_id: Optional[int] = None,
     month: Optional[str] = None,
+    sponsor_id: Optional[int] = None,
 ) -> Tuple[int, List[WorkItem]]:
     """获取待考核项清单（已完成、未发起考核、未标记非考核项）"""
 
@@ -455,6 +457,8 @@ async def get_pending_items(
     # 筛选
     if keyword:
         query = query.where(WorkItem.title.contains(keyword))
+    if sponsor_id:
+        query = query.where(WorkItem.sponsor_id == sponsor_id)
     if department_id:
         query = query.where(WorkItem.department_id == department_id)
     if district_id:
@@ -583,6 +587,15 @@ async def initiate_assessment(
     initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
     current_level = get_current_level_from_status(initial_status)
 
+    # AI 初评固定环节（PRD 6.7）：跳过部门确认时，发起后直接进入 AI 评分
+    # （未配置 Bot 或未跳过部门确认时走原状态机，部门确认完成后再触发）
+    from services.ai_scoring_service import get_ai_bot_configured
+    ai_triggered = False
+    if get_ai_bot_configured() and skip_dept:
+        initial_status = AssessmentStatus.ai_scoring.value
+        current_level = None
+        ai_triggered = True
+
     # 创建考核记录
     assessment = Assessment(
         work_item_id=work_item.id,
@@ -595,6 +608,7 @@ async def initiate_assessment(
         skip_dept_confirm=skip_dept,
         skip_district_score=skip_district,
         skip_regulator_score=skip_regulator,
+        ai_status="scoring" if ai_triggered else "none",
         initiated_at=datetime.utcnow(),
     )
     db.add(assessment)
@@ -602,17 +616,24 @@ async def initiate_assessment(
 
     # 操作日志
     no_sponsor_note = "；工作项无主办人，由发起人所在部门代管" if not work_item.sponsor_id else ""
+    ai_note = "；进入AI评分" if ai_triggered else ""
     await add_operation_log(
         db,
         assessment_id=assessment.id,
         work_item_id=work_item.id,
         operator_id=initiator.id,
         action="initiate",
-        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}{no_sponsor_note}",
+        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}{no_sponsor_note}{ai_note}",
     )
 
     await db.commit()
     await db.refresh(assessment)
+
+    # AI 评分后台任务（commit 后启动，任务内部自带状态校验与兜底）
+    if ai_triggered:
+        from services.ai_scoring_service import trigger_ai_scoring
+        trigger_ai_scoring(assessment.id)
+
     return assessment
 
 
@@ -685,7 +706,12 @@ async def dept_confirm(
         raise ValueError("无权限：只能确认本部门的考核项")
 
     # 流转到下一层
-    if assessment.skip_district_score:
+    # AI 初评固定环节（PRD 6.7）：部门确认完成后先进入 AI 评分，再流转到第一个评分层
+    from services.ai_scoring_service import get_ai_bot_configured
+    if get_ai_bot_configured():
+        next_status = AssessmentStatus.ai_scoring.value
+        next_level = None
+    elif assessment.skip_district_score:
         next_status = AssessmentStatus.pending_regulator_score.value
         next_level = ScoreLevel.regulator.value
     else:
@@ -694,6 +720,8 @@ async def dept_confirm(
 
     assessment.status = next_status
     assessment.current_level = next_level
+    if next_status == AssessmentStatus.ai_scoring.value:
+        assessment.ai_status = "scoring"
     assessment.updated_at = datetime.utcnow()
 
     await add_operation_log(
@@ -707,6 +735,12 @@ async def dept_confirm(
 
     await db.commit()
     await db.refresh(assessment)
+
+    # AI 评分后台任务
+    if next_status == AssessmentStatus.ai_scoring.value:
+        from services.ai_scoring_service import trigger_ai_scoring
+        trigger_ai_scoring(assessment.id)
+
     return assessment
 
 
@@ -832,6 +866,7 @@ async def get_to_score_list(
     # 自动检查异议期是否过期
     await _auto_expire_appeal_period_batch(db, items)
     await _auto_advance_appeal_progress_batch(db, items)
+    await _auto_advance_ai_scoring_batch(db, items)
 
     return total, items
 
@@ -895,6 +930,105 @@ def validate_score(total_score: int, participants: list) -> Tuple[bool, str]:
             return False, f"参与人分配总分({total_allocated})必须等于总分({total_score})"
 
     return True, ""
+
+
+# ======================================================================
+# 考核指错得分（监察主任/集团总监独立判断加分，两阶段）
+# ======================================================================
+
+def _get_prev_level_score(assessment: Assessment, score_level: str) -> Optional[int]:
+    """指错参照链：取上一环节分
+
+    - 监察(regulator)的上一环节：区总分；区总被跳过 → AI 建议分
+    - 集团总监(group)的上一环节：监察分；监察被跳过 → 区总分；再跳过 → AI 建议分
+    - 参照分不可得（AI 未评分/标准未明确）→ None（无法判断"不同"，不预记）
+    """
+    def _score_of(level: str) -> Optional[int]:
+        for s in assessment.scores:
+            if s.level == level:
+                return s.total_score
+        return None
+
+    if score_level == ScoreLevel.regulator.value:
+        if assessment.skip_district_score:
+            return assessment.ai_score
+        return _score_of(ScoreLevel.district.value)
+    if score_level == ScoreLevel.group.value:
+        if not assessment.skip_regulator_score:
+            return _score_of(ScoreLevel.regulator.value)
+        if not assessment.skip_district_score:
+            return _score_of(ScoreLevel.district.value)
+        return assessment.ai_score
+    return None
+
+
+async def _record_error_bonus_on_score(
+    db: AsyncSession,
+    assessment: Assessment,
+    score_level: str,
+    scorer_id: int,
+    total_score: int,
+) -> None:
+    """提交评分时预记指错得分：评分 ≠ 上一环节分 → tentative +1
+
+    仅监察(regulator)与集团总监(group)两层参与；同一考核同人同层只记一条。
+    """
+    if score_level not in (ScoreLevel.regulator.value, ScoreLevel.group.value):
+        return
+    prev = _get_prev_level_score(assessment, score_level)
+    if prev is None or total_score == prev:
+        return
+
+    # 查重（防御）
+    existing = await db.execute(
+        select(AssessmentErrorBonus).where(
+            AssessmentErrorBonus.assessment_id == assessment.id,
+            AssessmentErrorBonus.user_id == scorer_id,
+            AssessmentErrorBonus.level == score_level,
+        )
+    )
+    if existing.scalar_one_or_none():
+        return
+
+    month = assessment.initiated_at.strftime("%Y-%m") if assessment.initiated_at else datetime.utcnow().strftime("%Y-%m")
+    db.add(AssessmentErrorBonus(
+        assessment_id=assessment.id,
+        work_item_id=assessment.work_item_id,
+        user_id=scorer_id,
+        level=score_level,
+        bonus=1,
+        status="tentative",
+        prev_level_score=prev,
+        own_score=total_score,
+        month=month,
+    ))
+
+
+async def _settle_error_bonuses(
+    db: AsyncSession,
+    assessment: Assessment,
+    ruling_score: Optional[float],
+) -> None:
+    """结算指错得分：评分 == 裁定分 → confirmed（保留）；否则 retracted（扣回）
+
+    调用点：总裁裁定（maintain=维持分/adjust=调整分）、无异议完结（裁定分=集团总监分）。
+    """
+    if ruling_score is None:
+        return
+    ruling = int(ruling_score) if float(ruling_score).is_integer() else ruling_score
+    result = await db.execute(
+        select(AssessmentErrorBonus).where(
+            AssessmentErrorBonus.assessment_id == assessment.id,
+            AssessmentErrorBonus.status == "tentative",
+        )
+    )
+    for bonus in result.scalars().all():
+        bonus.ruling_score = ruling if isinstance(ruling, int) else ruling_score
+        if bonus.own_score == ruling:
+            bonus.status = "confirmed"
+        else:
+            bonus.status = "retracted"
+            bonus.bonus = 0
 
 
 async def submit_score(
@@ -1043,6 +1177,9 @@ async def submit_score(
     assessment.current_level = next_level
     assessment.updated_at = datetime.utcnow()
 
+    # 指错得分预记：监察/集团总监评分 ≠ 上一环节分 → 暂计 +1
+    await _record_error_bonus_on_score(db, assessment, score_level, user.id, total_score)
+
     # 操作日志
     await add_operation_log(
         db,
@@ -1083,6 +1220,8 @@ async def _auto_expire_appeal_period(db: AsyncSession, assessment: Assessment) -
         assessment.status = AssessmentStatus.completed.value
         assessment.completed_at = datetime.utcnow()
         assessment.updated_at = datetime.utcnow()
+        # 指错得分结算：无异议完结项裁定分 = 集团总监分（final_score）
+        await _settle_error_bonuses(db, assessment, assessment.final_score)
         # 操作日志
         log = AssessmentOperationLog(
             assessment_id=assessment.id,
@@ -1107,6 +1246,8 @@ async def _auto_expire_appeal_period_batch(db: AsyncSession, assessments: list) 
             a.status = AssessmentStatus.completed.value
             a.completed_at = now
             a.updated_at = now
+            # 指错得分结算：无异议完结项裁定分 = 集团总监分（final_score）
+            await _settle_error_bonuses(db, a, a.final_score)
             log = AssessmentOperationLog(
                 assessment_id=a.id,
                 work_item_id=a.work_item_id,
@@ -1175,6 +1316,45 @@ async def _auto_advance_appeal_progress_batch(db: AsyncSession, assessments: lis
     )]
     for a in targets:
         await _auto_advance_appeal_progress(db, a)
+
+
+_AI_SCORING_STUCK_MINUTES = 10  # AI评分后台任务丢失判定阈值
+
+
+async def _auto_advance_ai_scoring_batch(db: AsyncSession, assessments: list) -> None:
+    """兜底：AI评分中（ai_scoring）超时未推进（后台任务丢失/进程重启）→ 标记 AI未评分 并流转下一层
+
+    主动查询数据库中所有卡住的 ai_scoring（不限于当前列表，防止列表查询不到导致永不流转）。
+    """
+    try:
+        threshold = datetime.utcnow() - timedelta(minutes=_AI_SCORING_STUCK_MINUTES)
+        result = await db.execute(
+            select(Assessment).where(
+                Assessment.status == AssessmentStatus.ai_scoring.value,
+                Assessment.updated_at < threshold,
+            )
+        )
+        stuck = list(result.scalars().all())
+    except Exception:
+        return
+    if not stuck:
+        return
+
+    from services.ai_scoring_service import advance_status_after_ai
+    for a in stuck:
+        # 超过阈值仍未离开 ai_scoring：后台任务丢失，放弃等待，标记未评分并流转
+        advance_status_after_ai(a)
+        if a.ai_status != "completed":
+            a.ai_status = "failed"
+        a.updated_at = datetime.utcnow()
+        db.add(AssessmentOperationLog(
+            assessment_id=a.id,
+            work_item_id=a.work_item_id,
+            operator_id=1,
+            action="auto_advance_ai_scoring",
+            detail="AI评分后台任务丢失，自动流转到下一评分层（标记AI未评分）",
+        ))
+    await db.flush()
 
 
 # ======================================================================
@@ -1467,6 +1647,7 @@ async def get_my_assessments(
     # 自动检查异议期是否过期
     await _auto_expire_appeal_period_batch(db, items)
     await _auto_advance_appeal_progress_batch(db, items)
+    await _auto_advance_ai_scoring_batch(db, items)
 
     return total, items
 
@@ -1769,6 +1950,8 @@ async def confirm_no_objection(
         assessment.status = AssessmentStatus.completed.value
         assessment.completed_at = datetime.utcnow()
         assessment.updated_at = datetime.utcnow()
+        # 指错得分结算：无异议完结项裁定分 = 集团总监分（final_score）
+        await _settle_error_bonuses(db, assessment, assessment.final_score)
         await add_operation_log(
             db,
             assessment_id=assessment.id,
@@ -2017,6 +2200,9 @@ async def submit_ruling(
     assessment.completed_at = datetime.utcnow()
     assessment.updated_at = datetime.utcnow()
 
+    # 指错得分结算：裁定分 = 维持的原评分 / 调整后的新分
+    await _settle_error_bonuses(db, assessment, assessment.final_score)
+
     action_text = "维持原评分" if ruling_action == "maintain" else f"调整分数为 {adjusted_score}"
     await add_operation_log(
         db,
@@ -2088,6 +2274,7 @@ async def get_all_assessments(
     # 自动检查异议期过期
     await _auto_expire_appeal_period_batch(db, items)
     await _auto_advance_appeal_progress_batch(db, items)
+    await _auto_advance_ai_scoring_batch(db, items)
 
     return total, items
 
@@ -2144,6 +2331,7 @@ async def export_assessments_excel(
     from models import AssessmentStatus as AS
     status_map = {
         AS.pending_dept_confirm.value: "待部门确认",
+        AS.ai_scoring.value: "AI评分中",
         AS.pending_district_score.value: "待区总评分",
         AS.pending_regulator_score.value: "待规管评分",
         AS.pending_group_score.value: "待集团总监评分",
@@ -2216,6 +2404,59 @@ async def export_assessments_excel(
 # 按得分人统计
 # ======================================================================
 
+async def get_my_error_bonus_summary(
+    db: AsyncSession,
+    user: User,
+    month: Optional[str] = None,
+) -> dict:
+    """我的考核指错得分（PRD 6.7.2）
+
+    逐条返回该用户作为评分人的 AssessmentErrorBonus 记录（pending/confirmed/reverted），
+    total 只计 confirmed。
+    """
+    from sqlalchemy import text as sa_text
+
+    query = (
+        select(AssessmentErrorBonus)
+        .options(
+            selectinload(AssessmentErrorBonus.assessment).selectinload(Assessment.work_item),
+        )
+        .where(AssessmentErrorBonus.user_id == user.id)
+    )
+    if month:
+        query = query.where(AssessmentErrorBonus.month == month)
+    query = query.order_by(AssessmentErrorBonus.created_at.desc())
+
+    result = await db.execute(query)
+    rows = list(result.scalars().all())
+
+    status_names = {"tentative": "暂计", "confirmed": "已证实", "retracted": "已扣回"}
+    items = []
+    summary = {"tentative": 0, "confirmed": 0, "retracted": 0, "total": 0}
+    for b in rows:
+        a = b.assessment
+        title = a.work_item.title if a and a.work_item else f"WI-{b.assessment_id}"
+        items.append({
+            "id": b.id,
+            "assessment_id": b.assessment_id,
+            "work_item_id": a.work_item_id if a else None,
+            "title": title,
+            "level": b.level,
+            "level_name": {"regulator": "监察评分", "group": "集团总监评分"}.get(b.level, b.level),
+            "score": b.own_score,
+            "prev_score": b.prev_level_score,
+            "ruling_score": b.ruling_score,
+            "bonus_status": b.status,
+            "status_name": status_names.get(b.status, b.status),
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "settled_at": b.settled_at.isoformat() if b.settled_at else None,
+        })
+        if b.status in summary:
+            summary[b.status] += 1
+    summary["total"] = summary["confirmed"]
+    return {"summary": summary, "items": items}
+
+
 async def get_personal_score_summary(
     db: AsyncSession,
     month: Optional[str] = None,
@@ -2254,6 +2495,19 @@ async def get_personal_score_summary(
     result = await db.execute(query)
     items = list(result.scalars().all())
 
+    # 指错得分（PRD 6.7.2）：error_bonus_sum 仅统计"已证实"
+    bonus_map: dict = {}
+    a_ids = [a.id for a in items]
+    if a_ids:
+        bonus_result = await db.execute(
+            select(AssessmentErrorBonus).where(
+                AssessmentErrorBonus.assessment_id.in_(a_ids),
+                AssessmentErrorBonus.status == "confirmed",
+            )
+        )
+        for b in bonus_result.scalars().all():
+            bonus_map.setdefault(b.user_id, {})[b.assessment_id] = b
+
     # 聚合：user_id -> 汇总
     summary: dict = {}
     for a in items:
@@ -2278,15 +2532,21 @@ async def get_personal_score_summary(
                     "user_name": uname,
                     "total_score": 0.0,
                     "item_count": 0,
+                    "error_bonus": 0,
                     "items": [],
                 }
             summary[uid]["total_score"] = round(summary[uid]["total_score"] + score, 2)
             summary[uid]["item_count"] += 1
+            b = bonus_map.get(uid, {}).get(a.id)
+            if b:
+                summary[uid]["error_bonus"] += 1
             summary[uid]["items"].append({
                 "assessment_id": a.id,
                 "work_item_id": a.work_item_id,
                 "title": title,
                 "score": score,
+                "error_bonus": 1 if b else 0,
+                "error_bonus_status": b.status if b else None,
                 "department_name": a.department.name if a.department else "",
                 "district_name": a.district.name if a.district else "",
                 "initiated_at": a.initiated_at.isoformat() if a.initiated_at else None,
@@ -2348,13 +2608,14 @@ async def export_personal_score_excel(
         ws.cell(row=row, column=4, value=s.get("district_name", ""))
         ws.cell(row=row, column=5, value=s["item_count"])
         ws.cell(row=row, column=6, value=s["total_score"])
+        ws.cell(row=row, column=7, value=s.get("error_bonus", 0))
 
-    for i, w in enumerate([6, 12, 16, 12, 10, 10], 1):
+    for i, w in enumerate([6, 12, 16, 12, 10, 10, 12], 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
 
     # Sheet2: 明细
     ws2 = wb.create_sheet("明细")
-    headers2 = ["姓名", "工作项", "所属部门", "区域", "得分", "发起时间"]
+    headers2 = ["姓名", "工作项", "所属部门", "区域", "得分", "考核指错得分", "发起时间"]
     for col, header in enumerate(headers2, 1):
         cell = ws2.cell(row=1, column=col, value=header)
         cell.font = header_font
@@ -2369,16 +2630,18 @@ async def export_personal_score_excel(
             ws2.cell(row=r, column=3, value=it.get("department_name", ""))
             ws2.cell(row=r, column=4, value=it.get("district_name", ""))
             ws2.cell(row=r, column=5, value=it["score"])
+            eb = it.get("error_bonus", 0)
+            ws2.cell(row=r, column=6, value=eb if eb else "")
             initiated = it.get("initiated_at")
             if initiated:
                 try:
                     from datetime import datetime as _dt
-                    ws2.cell(row=r, column=6, value=_dt.fromisoformat(initiated).strftime("%Y-%m-%d %H:%M"))
+                    ws2.cell(row=r, column=7, value=_dt.fromisoformat(initiated).strftime("%Y-%m-%d %H:%M"))
                 except Exception:
-                    ws2.cell(row=r, column=6, value=initiated)
+                    ws2.cell(row=r, column=7, value=initiated)
             r += 1
 
-    for i, w in enumerate([12, 35, 16, 12, 10, 18], 1):
+    for i, w in enumerate([12, 35, 16, 12, 10, 12, 18], 1):
         ws2.column_dimensions[ws2.cell(row=1, column=i).column_letter].width = w
 
     output = BytesIO()

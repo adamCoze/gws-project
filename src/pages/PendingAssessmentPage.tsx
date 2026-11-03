@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Input, Space, Tag, Modal, Typography, message, Tooltip } from 'antd';
-import { PlayCircleOutlined, StopOutlined, MailOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Space, Tag, Modal, Typography, message, Tooltip, Select } from 'antd';
+import { PlayCircleOutlined, StopOutlined, MailOutlined, ReloadOutlined, EditOutlined } from '@ant-design/icons';
+import WorkItemEditModal from '../components/WorkItemEditModal';
+import type { WorkItem } from '../types';
+import { workItemApi, userApi } from '../services/api';
 import type { ColumnsType } from 'antd/es/table';
 import type { PendingAssessmentItem, SkipRuleInfo } from '../types';
 import { ASSESSMENT_STATUS_LABELS } from '../types';
@@ -20,6 +23,9 @@ const PendingAssessmentPage: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sponsorFilter, setSponsorFilter] = useState<number | undefined>(undefined);
+  const [users, setUsers] = useState<{ id: number; real_name: string; username: string }[]>([]);
+  const [editTarget, setEditTarget] = useState<WorkItem | null>(null);
 
   // 发起考核确认弹窗
   const [initiateTarget, setInitiateTarget] = useState<PendingAssessmentItem | null>(null);
@@ -31,10 +37,11 @@ const PendingAssessmentPage: React.FC = () => {
   const [markRemark, setMarkRemark] = useState('');
   const [marking, setMarking] = useState(false);
 
-  const fetchData = async (p = page, ps = pageSize, kw = keyword) => {
+  const fetchData = async (p = page, ps = pageSize, kw = keyword, sp: number | undefined = sponsorFilter) => {
+    if (sp !== undefined) setSponsorFilter(sp);
     setLoading(true);
     try {
-      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined });
+      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined, sponsor_id: sp });
       setItems(res.items);
       setTotal(res.total);
     } catch (e: any) {
@@ -47,8 +54,18 @@ const PendingAssessmentPage: React.FC = () => {
   useEffect(() => {
     fetchData(1, pageSize, keyword);
     setPage(1);
+    userApi.listBrief().then((u) => setUsers(u)).catch(() => { /* 忽略 */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleTitleClick = async (record: PendingAssessmentItem) => {
+    try {
+      const wi = await workItemApi.get(record.work_item_id) as unknown as WorkItem;
+      setEditTarget(wi);
+    } catch {
+      message.error('获取工作项详情失败');
+    }
+  };
 
   const handleInitiateClick = async (item: PendingAssessmentItem) => {
     setInitiateTarget(item);
@@ -99,7 +116,10 @@ const PendingAssessmentPage: React.FC = () => {
       key: 'title',
       render: (title: string, record) => (
         <Space>
-          <Text strong>{title}</Text>
+          <Text strong style={{ cursor: 'pointer' }} onClick={() => handleTitleClick(record)}>{title}</Text>
+          <Tooltip title="编辑工作项">
+            <EditOutlined style={{ color: '#1677ff', cursor: 'pointer' }} onClick={() => handleTitleClick(record)} />
+          </Tooltip>
           {record.has_email && (
             <Tooltip title={record.email_url ? '打开关联邮件' : '暂无邮件链接'}>
               {record.email_url ? (
@@ -115,7 +135,7 @@ const PendingAssessmentPage: React.FC = () => {
     { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 140, render: (v) => v || '-' },
     { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 120, render: (v) => v || '-' },
     {
-      title: '责任人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 130,
+      title: '主办人', dataIndex: 'sponsor_name', key: 'sponsor_name', width: 130,
       render: (v) => v || <Tag color="orange">无主办人</Tag>,
     },
     {
@@ -156,6 +176,16 @@ const PendingAssessmentPage: React.FC = () => {
             allowClear
             style={{ width: 280 }}
             onSearch={(kw) => { setKeyword(kw); setPage(1); fetchData(1, pageSize, kw); }}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="按主办人筛选"
+            style={{ width: 180 }}
+            value={sponsorFilter}
+            onChange={(v) => { setSponsorFilter(v); setPage(1); fetchData(1, pageSize, keyword, v); }}
+            options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
           />
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
@@ -231,7 +261,13 @@ const PendingAssessmentPage: React.FC = () => {
           maxLength={500}
         />
       </Modal>
-    </div>
+          <WorkItemEditModal
+        open={!!editTarget}
+        item={editTarget}
+        onCancel={() => setEditTarget(null)}
+        onSaved={() => { setEditTarget(null); fetchData(); }}
+      />
+</div>
   );
 };
 
