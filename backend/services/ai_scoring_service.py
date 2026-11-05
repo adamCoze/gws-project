@@ -49,6 +49,16 @@ def get_ai_bot_configured() -> bool:
     return bool((settings.GWS_AI_BOT_ID or "").strip())
 
 
+def ai_scoring_enabled() -> bool:
+    """AI 初评环节是否启用：需同时满足开关打开（GWS_AI_SCORING_ENABLED）且 Bot 已配置。
+
+    2026-11-05：预判表与 9 月人手打分比对发现 AI 评分规则尚需大量训练，暂时停用
+    区总前的自动 AI 初评，仅保留异议期 AI 中立审查（appeal_ai_service，不受本开关影响）。
+    恢复方法：服务器 .env 设 GWS_AI_SCORING_ENABLED=true 后 docker compose restart app。
+    """
+    return bool(getattr(settings, "GWS_AI_SCORING_ENABLED", True)) and get_ai_bot_configured()
+
+
 def parse_ai_score_answer(answer: str) -> Tuple[Optional[int], Optional[str], Optional[str]]:
     """解析评分回答 → (建议得分|None, 评分理由, 依据条款)
 
@@ -176,8 +186,8 @@ async def run_ai_scoring(assessment_id: int) -> None:
                 if assessment.status != AssessmentStatus.ai_scoring.value:
                     logger.info("AI 初评：考核 %s 状态已不是 ai_scoring（%s），跳过", assessment_id, assessment.status)
                     return
-                if not get_ai_bot_configured():
-                    # 防御：未配置时直接流转
+                if not ai_scoring_enabled():
+                    # 防御：开关关闭或未配置时直接流转（不调用 Bot）
                     advance_status_after_ai(assessment)
                     assessment.updated_at = datetime.utcnow()
                     await db.commit()
@@ -244,8 +254,9 @@ async def run_ai_scoring(assessment_id: int) -> None:
 
 
 def trigger_ai_scoring(assessment_id: int) -> None:
-    """启动 AI 初评后台任务（Bot 未配置时不启动）"""
-    if not get_ai_bot_configured():
+    """启动 AI 初评后台任务（开关关闭或 Bot 未配置时不启动）"""
+    if not ai_scoring_enabled():
+        logger.info("AI 初评已停用（GWS_AI_SCORING_ENABLED=false），考核 %s 跳过自动评分", assessment_id)
         return
     try:
         loop = asyncio.get_running_loop()

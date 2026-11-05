@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     GWS_AI_BOT_ID: str = os.getenv("GWS_AI_BOT_ID", "")
     GWS_AI_BOT_NAME: str = os.getenv("GWS_AI_BOT_NAME", "GWS考核AI助手")
 
+    # AI 初评环节开关（区总前自动评分）：true=启用（默认，PRD 6.7），false=停用，考核直接走原状态机
+    # 停用时 AI 不再在发起/部门确认后自动打分，仅保留异议期 AI 中立审查；
+    # 恢复时改回 true 并 docker compose restart app 即可，评分代码全部留存。
+    GWS_AI_SCORING_ENABLED: bool = os.getenv("GWS_AI_SCORING_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+
     # 邮件检查间隔（分钟）
     EMAIL_CHECK_INTERVAL: int = int(os.getenv("EMAIL_CHECK_INTERVAL", "5"))
 

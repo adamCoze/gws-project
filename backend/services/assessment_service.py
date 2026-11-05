@@ -588,10 +588,11 @@ async def initiate_assessment(
     current_level = get_current_level_from_status(initial_status)
 
     # AI 初评固定环节（PRD 6.7）：跳过部门确认时，发起后直接进入 AI 评分
-    # （未配置 Bot 或未跳过部门确认时走原状态机，部门确认完成后再触发）
-    from services.ai_scoring_service import get_ai_bot_configured
+    # 2026-11-05 起由 GWS_AI_SCORING_ENABLED 开关控制（暂停训练中，详见 ai_scoring_service）；
+    # 关闭或未配置 Bot 时走原状态机，部门确认完成后再触发
+    from services.ai_scoring_service import ai_scoring_enabled
     ai_triggered = False
-    if get_ai_bot_configured() and skip_dept:
+    if ai_scoring_enabled() and skip_dept:
         initial_status = AssessmentStatus.ai_scoring.value
         current_level = None
         ai_triggered = True
@@ -707,8 +708,9 @@ async def dept_confirm(
 
     # 流转到下一层
     # AI 初评固定环节（PRD 6.7）：部门确认完成后先进入 AI 评分，再流转到第一个评分层
-    from services.ai_scoring_service import get_ai_bot_configured
-    if get_ai_bot_configured():
+    # 2026-11-05 起由 GWS_AI_SCORING_ENABLED 开关控制（暂停训练中，详见 ai_scoring_service）
+    from services.ai_scoring_service import ai_scoring_enabled
+    if ai_scoring_enabled():
         next_status = AssessmentStatus.ai_scoring.value
         next_level = None
     elif assessment.skip_district_score:
