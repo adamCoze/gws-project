@@ -36,11 +36,13 @@ from schemas import (
     NonAssessmentItemOut,
     SkipRuleInfoOut,
     InitiateAssessmentResponse,
+    InitiateAssessmentBody,
     SuccessResponse,
 )
 from services.assessment_service import (
     get_pending_items,
     initiate_assessment,
+    resolve_sponsor_role,
     calculate_skip_rules,
     get_initial_status,
     get_dept_confirm_list,
@@ -129,10 +131,15 @@ async def list_pending_items(
 @router.get("/check-skip-rule/{work_item_id}", response_model=SkipRuleInfoOut)
 async def check_skip_rule(
     work_item_id: int,
+    sponsor_role_index: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查询某个工作项的跳过情况（前端展示用）"""
+    """查询某个工作项的跳过情况（前端展示用）
+
+    sponsor_role_index: 主办人本人发起时可传所选角色下标（None/-1=主角色），
+    用于在发起弹窗中按所选角色实时预览跳过规则与初始状态。
+    """
     from sqlalchemy import select
     result = await db.execute(
         select(WorkItem).options(selectinload(WorkItem.sponsor)).where(WorkItem.id == work_item_id)
@@ -141,9 +148,23 @@ async def check_skip_rule(
     if not work_item:
         raise HTTPException(status_code=404, detail="工作项不存在")
 
+    effective_level = None
+    if sponsor_role_index is not None and sponsor_role_index >= 0:
+        if not work_item.sponsor_id or work_item.sponsor_id != current_user.id:
+            raise HTTPException(status_code=400, detail="仅主办人本人发起考核时才能选择角色")
+        try:
+            chosen = resolve_sponsor_role(current_user, sponsor_role_index)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        effective_level = chosen["level"]
+
     skip_dept, skip_district, skip_regulator, reason = await calculate_skip_rules(
-        db, work_item, work_item.sponsor
+        db, work_item, work_item.sponsor, effective_level=effective_level
     )
+    if effective_level is not None:
+        from services.assessment_service import ROLE_LEVEL_ZH
+        label = ROLE_LEVEL_ZH.get(effective_level, f"等级{effective_level}")
+        reason = f"按所选发起角色「{label}」计算；{reason}" if reason else f"按所选发起角色「{label}」计算"
     initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
 
     return SkipRuleInfoOut(
@@ -163,12 +184,14 @@ async def check_skip_rule(
 @router.post("/initiate/{work_item_id}", response_model=InitiateAssessmentResponse)
 async def initiate_assessment_api(
     work_item_id: int,
+    body: Optional[InitiateAssessmentBody] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """发起考核"""
+    """发起考核（可选 body：sponsor_role_index 主办人发起角色选择）"""
+    role_index = body.sponsor_role_index if body else None
     try:
-        assessment = await initiate_assessment(db, work_item_id, current_user)
+        assessment = await initiate_assessment(db, work_item_id, current_user, sponsor_role_index=role_index)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

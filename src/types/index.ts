@@ -116,6 +116,13 @@ export const TYPE_COLORS: Record<string, string> = {
   report: 'cyan',
 };
 
+// 副角色（对象数组，与后端 secondary_roles 一致）
+export interface SecondaryRole {
+  role_level: number;
+  department_id?: number | null;
+  district_id?: number | null;
+}
+
 export interface District {
   id: number;
   name: string;
@@ -142,7 +149,7 @@ export interface User {
   real_name?: string;
   role: UserRole;
   role_level: RoleLevel;
-  secondary_roles: number[];
+  secondary_roles: SecondaryRole[];
   department_id?: number;
   district_id?: number;
   region?: string;
@@ -527,6 +534,15 @@ export interface NonAssessmentItem {
   marked_by_name?: string;
   marked_at?: string | null;
   revoked?: boolean;
+}
+
+// 发起角色选项（主角色 + 副角色，供发起考核弹窗选择）
+export interface SponsorRoleOption {
+  index: number | null;          // null = 主角色，>=0 = secondary_roles 下标
+  label: string;
+  level: number;
+  department_id?: number | null;
+  district_id?: number | null;
 }
 
 // 跳过规则信息

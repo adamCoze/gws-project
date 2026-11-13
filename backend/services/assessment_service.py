@@ -101,6 +101,51 @@ def _get_effective_role_level(user: User) -> int:
     return level
 
 
+# 角色等级中文名（用于日志/原因文案）
+ROLE_LEVEL_ZH = {
+    1: "顾问",
+    2: "专员",
+    3: "经理",
+    4: "区域总监",
+    5: "部门总监",
+    6: "监察主任",
+    7: "集团总监",
+    8: "总裁",
+    9: "管理员",
+}
+
+
+def resolve_sponsor_role(user: User, role_index: Optional[int]) -> dict:
+    """解析发起考核时主办人选择的角色。
+
+    role_index: None / -1 = 主角色；>=0 = secondary_roles 下标。
+    返回 {"index", "level", "department_id", "district_id", "is_primary"}。
+    越界或非法时抛 ValueError，由路由层转为 400。
+    """
+    if role_index is None or role_index < 0:
+        return {
+            "index": None,
+            "level": user.role_level or 2,
+            "department_id": user.department_id,
+            "district_id": user.district_id,
+            "is_primary": True,
+        }
+    secondary = user.secondary_roles or []
+    if role_index >= len(secondary):
+        raise ValueError("所选角色不存在，请刷新后重试")
+    sr = secondary[role_index] or {}
+    level = sr.get("role_level") or 0
+    if not level:
+        raise ValueError("所选角色数据异常，请联系管理员检查副角色配置")
+    return {
+        "index": role_index,
+        "level": level,
+        "department_id": sr.get("department_id"),
+        "district_id": sr.get("district_id"),
+        "is_primary": False,
+    }
+
+
 def _get_department_ids_for_role(user: User, min_level: int = RoleLevel.DEPT_DIRECTOR) -> List[int]:
     """获取用户在指定等级及以上的所有部门ID（主角色 + 附加角色）
     用于部门总监确认、部门维度数据过滤等场景。
@@ -236,7 +281,10 @@ async def calculate_skip_rules(
     work_item: WorkItem,
     sponsor: Optional[User] = None,
     fallback_user: Optional[User] = None,
+    effective_level: Optional[int] = None,
 ) -> Tuple[bool, bool, bool, str]:
+    # effective_level: 发起时主办人选定的角色等级（多角色员工按所选角色算跳层）；
+    # 未选择时按主办人主角色，行为与旧版一致
     if sponsor is None:
         result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
         sponsor = result.scalar_one_or_none()
@@ -244,7 +292,7 @@ async def calculate_skip_rules(
     if not sponsor:
         return False, False, False, "工作项无主办人，不适用跳过规则，走完整评审流程"
 
-    sponsor_level = sponsor.role_level or 2
+    sponsor_level = effective_level if effective_level is not None else (sponsor.role_level or 2)
     sponsor_dept = sponsor.department_id
     work_item_dept = work_item.department_id
 
@@ -512,8 +560,17 @@ async def initiate_assessment(
     db: AsyncSession,
     work_item_id: int,
     initiator: User,
+    sponsor_role_index: Optional[int] = None,
 ) -> Assessment:
-    """发起考核"""
+    """发起考核。
+
+    sponsor_role_index: 主办人本人发起时可选择本次考核使用的角色
+    （主角色或副角色，见 resolve_sponsor_role）。选定后：
+    - 考核归属部门/区域以所选角色为准
+    - 层级跳过规则按所选角色等级计算
+    - assessments.initiator_role_level 记录所选角色等级
+    代发起（发起人 != 主办人）时不允许选择角色。
+    """
     # 检查工作项
     result = await db.execute(
         select(WorkItem)
@@ -575,13 +632,38 @@ async def initiate_assessment(
         sponsor_result = await db.execute(select(User).where(User.id == work_item.sponsor_id))
         sponsor = sponsor_result.scalar_one_or_none()
 
-    # 计算跳过规则
+    # 发起角色选择（2026-11-13）：仅主办人本人发起时可选择本次考核使用的角色
+    # 同一员工可能身兼多角色（主角色+副角色）但共用同一邮箱，系统无法从邮件自动判断
+    # 其在本次工作中以哪个角色行事，故由发起人在发起时显式指定
+    role_dept_override = None
+    role_district_override = None
+    effective_level = None
+    if sponsor_role_index is not None and sponsor_role_index >= 0:
+        if not work_item.sponsor_id or work_item.sponsor_id != initiator.id:
+            raise ValueError("仅主办人本人发起考核时才能选择角色")
+        chosen = resolve_sponsor_role(initiator, sponsor_role_index)
+        effective_level = chosen["level"]
+        # 归属以所选角色为准（主角色用用户表归属；副角色用其配置的部门/区域，
+        # 副角色未配置归属时回退工作项归属）
+        if chosen["is_primary"]:
+            role_dept_override = initiator.department_id
+            role_district_override = initiator.district_id
+        else:
+            role_dept_override = chosen["department_id"]
+            role_district_override = chosen["district_id"]
+
+    # 计算跳过规则（按所选角色等级；未选择时按主办人主角色）
     skip_dept, skip_district, skip_regulator, skip_reason = await calculate_skip_rules(
-        db, work_item, sponsor, fallback_user=initiator
+        db, work_item, sponsor, fallback_user=initiator, effective_level=effective_level
     )
+    if effective_level is not None:
+        role_label = ROLE_LEVEL_ZH.get(effective_level, f"等级{effective_level}")
+        skip_reason = f"按所选发起角色「{role_label}」计算；{skip_reason}" if skip_reason else f"按所选发起角色「{role_label}」计算"
 
     # 获取区域ID（主办人区域优先；无主办人时用发起人区域，都没有则香港区）
     district_id = await get_work_item_district_id(db, work_item, sponsor, fallback_user=initiator)
+    if role_district_override:
+        district_id = role_district_override
 
     # 确定初始状态
     initial_status = get_initial_status(skip_dept, skip_district, skip_regulator)
@@ -598,14 +680,22 @@ async def initiate_assessment(
         ai_triggered = True
 
     # 创建考核记录
+    # 归属部门：选了发起角色时以所选角色的部门为准（覆盖 AI 判断的工作项部门）；
+    # 未选择时维持原逻辑（工作项部门）。副角色未配置部门时回退工作项部门。
+    if role_dept_override:
+        department_id = role_dept_override
+    else:
+        department_id = work_item.department_id
+
     assessment = Assessment(
         work_item_id=work_item.id,
         initiator_id=initiator.id,
         sponsor_id=work_item.sponsor_id,
-        department_id=work_item.department_id,
+        department_id=department_id,
         district_id=district_id,
         status=initial_status,
         current_level=current_level,
+        initiator_role_level=effective_level,
         skip_dept_confirm=skip_dept,
         skip_district_score=skip_district,
         skip_regulator_score=skip_regulator,
@@ -618,13 +708,17 @@ async def initiate_assessment(
     # 操作日志
     no_sponsor_note = "；工作项无主办人，由发起人所在部门代管" if not work_item.sponsor_id else ""
     ai_note = "；进入AI评分" if ai_triggered else ""
+    role_note = ""
+    if effective_level is not None:
+        role_label = ROLE_LEVEL_ZH.get(effective_level, f"等级{effective_level}")
+        role_note = f"；发起角色：{role_label}"
     await add_operation_log(
         db,
         assessment_id=assessment.id,
         work_item_id=work_item.id,
         operator_id=initiator.id,
         action="initiate",
-        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}{no_sponsor_note}{ai_note}",
+        detail=f"发起考核，初始状态：{initial_status}。跳过规则：{skip_reason or '无'}{no_sponsor_note}{ai_note}{role_note}",
     )
 
     await db.commit()

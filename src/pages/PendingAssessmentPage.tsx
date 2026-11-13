@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Input, Space, Tag, Modal, Typography, message, Tooltip, Select } from 'antd';
+import { Table, Button, Input, Space, Tag, Modal, Typography, message, Tooltip, Select, Spin } from 'antd';
 import { PlayCircleOutlined, StopOutlined, MailOutlined, ReloadOutlined, EditOutlined } from '@ant-design/icons';
 import WorkItemEditModal from '../components/WorkItemEditModal';
 import type { WorkItem } from '../types';
 import { workItemApi, userApi } from '../services/api';
 import type { ColumnsType } from 'antd/es/table';
-import type { PendingAssessmentItem, SkipRuleInfo } from '../types';
-import { ASSESSMENT_STATUS_LABELS } from '../types';
-import { assessmentApi } from '../services/api';
+import type { PendingAssessmentItem, SkipRuleInfo, SponsorRoleOption } from '../types';
+import { ASSESSMENT_STATUS_LABELS, ROLE_LEVEL_LABELS } from '../types';
+import { assessmentApi, departmentApi, districtApi } from '../services/api';
+import { useAuth } from '../components/AuthProvider';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -31,6 +32,42 @@ const PendingAssessmentPage: React.FC = () => {
   const [initiateTarget, setInitiateTarget] = useState<PendingAssessmentItem | null>(null);
   const [skipRule, setSkipRule] = useState<SkipRuleInfo | null>(null);
   const [initiating, setInitiating] = useState(false);
+  // 发起角色选择（仅主办人本人发起且有副角色时出现）
+  const { user } = useAuth();
+  const [roleOptions, setRoleOptions] = useState<SponsorRoleOption[]>([]);
+  const [selectedRoleIndex, setSelectedRoleIndex] = useState<number | null>(null);
+  const [roleRuleLoading, setRoleRuleLoading] = useState(false);
+  const [nameMaps, setNameMaps] = useState<{ dept: Record<number, string>; dist: Record<number, string> }>({ dept: {}, dist: {} });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [depts, dists] = await Promise.all([
+          departmentApi.list().catch(() => []),
+          districtApi.list().catch(() => []),
+        ]);
+        setNameMaps({
+          dept: Object.fromEntries((depts as any[]).map((d) => [d.id, d.name])),
+          dist: Object.fromEntries((dists as any[]).map((d) => [d.id, d.name])),
+        });
+      } catch {
+        // 名称映射失败不阻塞，选项退化为仅显示角色名
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const buildRoleOptions = (deptMap: Record<number, string>, distMap: Record<number, string>): SponsorRoleOption[] => {
+    if (!user) return [];
+    const locName = (id?: number | null) => (id != null ? deptMap[id] || distMap[id] || '' : '');
+    const primaryLabel = [ROLE_LEVEL_LABELS[user.role_level] || `等级${user.role_level}`, locName(user.department_id) || locName(user.district_id)].filter(Boolean).join(' · ');
+    const options: SponsorRoleOption[] = [{ index: null, label: `${primaryLabel}（主角色）`, level: user.role_level, department_id: user.department_id, district_id: user.district_id }];
+    (user.secondary_roles || []).forEach((sr, i) => {
+      const label = [ROLE_LEVEL_LABELS[sr.role_level] || `等级${sr.role_level}`, locName(sr.department_id) || locName(sr.district_id)].filter(Boolean).join(' · ');
+      options.push({ index: i, label, level: sr.role_level, department_id: sr.department_id, district_id: sr.district_id });
+    });
+    return options;
+  };
 
   // 标记非考核弹窗
   const [markTarget, setMarkTarget] = useState<PendingAssessmentItem | null>(null);
@@ -70,6 +107,12 @@ const PendingAssessmentPage: React.FC = () => {
   const handleInitiateClick = async (item: PendingAssessmentItem) => {
     setInitiateTarget(item);
     setSkipRule(null);
+    // 仅主办人本人发起且配置了副角色时，提供发起角色选择
+    const selfInitiate = user && item.sponsor_id === user.id;
+    const options = selfInitiate ? buildRoleOptions(nameMaps.dept, nameMaps.dist) : [];
+    const selectable = options.length > 1;
+    setRoleOptions(selectable ? options : []);
+    setSelectedRoleIndex(null);
     try {
       const rule = await assessmentApi.checkSkipRule(item.work_item_id);
       setSkipRule(rule);
@@ -78,11 +121,26 @@ const PendingAssessmentPage: React.FC = () => {
     }
   };
 
+  // 切换发起角色：按所选角色重新预览跳过规则
+  const handleRoleChange = async (index: number | null) => {
+    if (!initiateTarget) return;
+    setSelectedRoleIndex(index);
+    setRoleRuleLoading(true);
+    try {
+      const rule = await assessmentApi.checkSkipRule(initiateTarget.work_item_id, index);
+      setSkipRule(rule);
+    } catch {
+      // 查询失败不阻塞，后端发起时仍会校验
+    } finally {
+      setRoleRuleLoading(false);
+    }
+  };
+
   const handleInitiateConfirm = async () => {
     if (!initiateTarget) return;
     setInitiating(true);
     try {
-      const res = await assessmentApi.initiate(initiateTarget.work_item_id);
+      const res = await assessmentApi.initiate(initiateTarget.work_item_id, selectedRoleIndex);
       message.success(res.message || `已发起考核，当前状态：${res.status_text}`);
       setInitiateTarget(null);
       fetchData();
@@ -221,6 +279,20 @@ const PendingAssessmentPage: React.FC = () => {
         <Paragraph>
           确认为工作项 <Text strong>{initiateTarget?.title}</Text> 发起考核？
         </Paragraph>
+        {roleOptions.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <Paragraph style={{ marginBottom: 4 }}>
+              发起角色：<Text type="secondary" style={{ fontSize: 12 }}>你有多重角色，请选择以哪个角色发起，考核将按所选角色的流程推进</Text>
+            </Paragraph>
+            <Select
+              style={{ width: '100%' }}
+              value={selectedRoleIndex === null ? 'primary' : String(selectedRoleIndex)}
+              onChange={(v) => handleRoleChange(v === 'primary' ? null : Number(v))}
+              options={roleOptions.map((o) => ({ value: o.index === null ? 'primary' : String(o.index), label: o.label }))}
+            />
+          </div>
+        )}
+        <Spin size="small" spinning={roleRuleLoading}>
         {skipRule && (
           <div style={{ background: '#f6f6f6', padding: 12, borderRadius: 6 }}>
             <Paragraph style={{ marginBottom: 4 }}>
@@ -237,6 +309,7 @@ const PendingAssessmentPage: React.FC = () => {
             )}
           </div>
         )}
+        </Spin>
       </Modal>
 
       {/* 标记非考核弹窗 */}

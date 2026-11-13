@@ -163,14 +163,17 @@ export const assessmentApi = {
     const res = await api.get('/assessment/pending-items', { params });
     return res as unknown as { items: PendingAssessmentItem[]; total: number };
   },
-  // 跳过规则查询
-  checkSkipRule: async (workItemId: number): Promise<SkipRuleInfo> => {
-    const res = await api.get(`/assessment/check-skip-rule/${workItemId}`);
+  // 跳过规则查询（sponsorRoleIndex: 主办人本人发起时可传所选角色下标预览对应流程）
+  checkSkipRule: async (workItemId: number, sponsorRoleIndex?: number | null): Promise<SkipRuleInfo> => {
+    const res = await api.get(`/assessment/check-skip-rule/${workItemId}`, {
+      params: sponsorRoleIndex !== undefined && sponsorRoleIndex !== null ? { sponsor_role_index: sponsorRoleIndex } : undefined,
+    });
     return res as unknown as SkipRuleInfo;
   },
-  // 发起考核
-  initiate: async (workItemId: number): Promise<{ assessment_id: number; status: string; status_text: string; message: string }> => {
-    const res = await api.post(`/assessment/initiate/${workItemId}`);
+  // 发起考核（sponsorRoleIndex: 主办人本人发起时选择的发起角色，null/undefined = 主角色）
+  initiate: async (workItemId: number, sponsorRoleIndex?: number | null): Promise<{ assessment_id: number; status: string; status_text: string; message: string }> => {
+    const body = sponsorRoleIndex !== undefined && sponsorRoleIndex !== null ? { sponsor_role_index: sponsorRoleIndex } : undefined;
+    const res = await api.post(`/assessment/initiate/${workItemId}`, body);
     return res as unknown as { assessment_id: number; status: string; status_text: string; message: string };
   },
   // 非考核项

@@ -793,6 +793,21 @@ class SkipRuleInfoOut(BaseModel):
     reason: str = ""
 
 
+# ---- 发起考核请求 ----
+
+class InitiateAssessmentBody(BaseModel):
+    """发起考核请求体。
+
+    sponsor_role_index: 主办人发起角色选择（仅主办人本人发起时生效）。
+    None / -1 = 主角色（默认，行为与旧版一致）；
+    >=0 = secondary_roles 数组下标，选定后：
+      - 考核归属部门/区域以所选角色为准（覆盖 AI 判断的工作项部门）
+      - 层级跳过规则按所选角色等级计算
+      - 写入 assessments.initiator_role_level
+    """
+    sponsor_role_index: Optional[int] = None
+
+
 # ---- 发起考核响应 ----
 
 class InitiateAssessmentResponse(BaseModel):
