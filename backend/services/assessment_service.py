@@ -2646,15 +2646,21 @@ async def get_personal_score_summary(
         if group_score and group_score.participants:
             entries = [(p.user_id, p.user_name, float(p.score)) for p in group_score.participants]
         else:
-            # 无参与人分配：总分归主办人
-            name = (a.sponsor.real_name or a.sponsor.username) if a.sponsor else f"用户#{a.sponsor_id}"
+            # 无参与人分配：总分归主办人；历史数据可能无主办人，归入「（无主办人）」桶
+            if a.sponsor:
+                name = a.sponsor.real_name or a.sponsor.username
+                uid = a.sponsor_id
+            else:
+                name = "（无主办人）"
+                uid = None
             total = a.final_score if a.final_score is not None else (group_score.total_score if group_score else 0)
-            entries = [(a.sponsor_id, name, float(total))]
+            entries = [(uid, name, float(total))]
 
         title = a.work_item.title if a.work_item else f"WI-{a.work_item_id}"
         for uid, uname, score in entries:
-            if uid not in summary:
-                summary[uid] = {
+            key = "none" if uid is None else uid
+            if key not in summary:
+                summary[key] = {
                     "user_id": uid,
                     "user_name": uname,
                     "total_score": 0.0,
@@ -2662,12 +2668,12 @@ async def get_personal_score_summary(
                     "error_bonus": 0,
                     "items": [],
                 }
-            summary[uid]["total_score"] = round(summary[uid]["total_score"] + score, 2)
-            summary[uid]["item_count"] += 1
+            summary[key]["total_score"] = round(summary[key]["total_score"] + score, 2)
+            summary[key]["item_count"] += 1
             b = bonus_map.get(uid, {}).get(a.id)
             if b:
-                summary[uid]["error_bonus"] += 1
-            summary[uid]["items"].append({
+                summary[key]["error_bonus"] += 1
+            summary[key]["items"].append({
                 "assessment_id": a.id,
                 "work_item_id": a.work_item_id,
                 "title": title,
@@ -2679,13 +2685,14 @@ async def get_personal_score_summary(
                 "initiated_at": a.initiated_at.isoformat() if a.initiated_at else None,
             })
 
-    # 补充参与人部门/区域
+    # 补充参与人部门/区域（"none" 桶无对应用户，跳过）
     if summary:
+        uid_keys = [k for k in summary.keys() if isinstance(k, int)]
         user_result = await db.execute(
             select(User).options(
                 selectinload(User.department),
                 selectinload(User.district),
-            ).where(User.id.in_(list(summary.keys())))
+            ).where(User.id.in_(uid_keys))
         )
         for u in user_result.scalars().all():
             if u.id in summary:
