@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-from sqlalchemy import select, func, or_, and_
+from sqlalchemy import select, func, or_, and_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -2329,11 +2329,41 @@ async def get_all_assessments(
     district_id: Optional[int] = None,
     department_id: Optional[int] = None,
     keyword: Optional[str] = None,
+    scorer_id: Optional[int] = None,
 ) -> Tuple[int, List[Assessment]]:
-    """管理员获取全集团考核列表（按月、状态等筛选）"""
+    """管理员获取全集团考核列表（按月、状态、得分人等筛选）
+
+    scorer_id：筛出该得分人有分摊得分的考核单。
+    得分口径与统计一致：集团层参与人分摊；无参与人分配时总分归主办人。
+    """
     from sqlalchemy import text as sa_text
 
     query = select(Assessment)
+
+    if scorer_id:
+        # 该人作为集团层参与人有分摊得分的考核
+        part_subq = (
+            select(AssessmentScore.assessment_id)
+            .join(AssessmentScoreParticipant, AssessmentScoreParticipant.score_id == AssessmentScore.id)
+            .where(
+                AssessmentScore.level == ScoreLevel.group.value,
+                AssessmentScoreParticipant.user_id == scorer_id,
+            )
+        )
+        # 无任何集团层参与人分配的考核：总分归主办人
+        has_group_parts = exists(
+            select(1)
+            .select_from(AssessmentScoreParticipant)
+            .join(AssessmentScore, AssessmentScore.id == AssessmentScoreParticipant.score_id)
+            .where(
+                AssessmentScore.assessment_id == Assessment.id,
+                AssessmentScore.level == ScoreLevel.group.value,
+            )
+        )
+        query = query.where(or_(
+            Assessment.id.in_(part_subq),
+            and_(Assessment.sponsor_id == scorer_id, ~has_group_parts),
+        ))
 
     if month:
         query = query.where(sa_text(
@@ -2558,6 +2588,7 @@ async def get_personal_score_summary(
     month: Optional[str] = None,
     department_id: Optional[int] = None,
     district_id: Optional[int] = None,
+    scorer_id: Optional[int] = None,
 ) -> List[dict]:
     """按得分人统计：某月已完结考核中每个参与人的最终得分汇总
 
@@ -2663,6 +2694,8 @@ async def get_personal_score_summary(
 
     # 按总分降序
     out = sorted(summary.values(), key=lambda x: -x["total_score"])
+    if scorer_id is not None:
+        out = [s for s in out if s["user_id"] == scorer_id]
     for s in out:
         s.setdefault("department_name", "")
         s.setdefault("district_name", "")
@@ -2674,71 +2707,128 @@ async def export_personal_score_excel(
     month: Optional[str] = None,
     department_id: Optional[int] = None,
     district_id: Optional[int] = None,
+    scorer_id: Optional[int] = None,
 ) -> bytes:
-    """导出按得分人统计 Excel（汇总+明细两个sheet）"""
+    """导出按得分人统计 Excel
+
+    结构：
+    - Sheet「汇总」：全员汇总（排名/姓名/部门/区域/考核项数/总得分/指错次数）
+    - 每个员工一个明细 sheet（sheet 名=姓名，重名自动加序号）：
+      序号/工作项标题/所属部门/区域/得分/考核指错/发起时间，底部加汇总行
+    月份由路由层强制必填。
+    """
     from io import BytesIO
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-    summary = await get_personal_score_summary(db, month, department_id, district_id)
+    summary = await get_personal_score_summary(db, month, department_id, district_id, scorer_id)
 
     wb = Workbook()
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    total_font = Font(bold=True)
+    total_fill = PatternFill(start_color="D9E2F3", end_color="D9E2F3", fill_type="solid")
+    thin = Side(style="thin", color="BFBFBF")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    # Sheet1: 汇总
+    def _style_header(ws, headers, widths):
+        for col, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = border
+        for i, w in enumerate(widths, 1):
+            ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+        ws.freeze_panes = "A2"
+
+    # ---------- Sheet 1: 汇总 ----------
     ws = wb.active
-    ws.title = "个人得分汇总"
-    headers = ["排名", "姓名", "部门", "区域", "考核项数", "总得分"]
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    for idx, s in enumerate(summary, 1):
+    ws.title = "汇总"
+    headers = ["排名", "姓名", "部门", "区域", "考核项数", "总得分", "考核指错次数"]
+    _style_header(ws, headers, [6, 12, 18, 12, 10, 10, 13])
+    for idx, s_item in enumerate(summary, 1):
         row = idx + 1
-        ws.cell(row=row, column=1, value=idx)
-        ws.cell(row=row, column=2, value=s["user_name"])
-        ws.cell(row=row, column=3, value=s.get("department_name", ""))
-        ws.cell(row=row, column=4, value=s.get("district_name", ""))
-        ws.cell(row=row, column=5, value=s["item_count"])
-        ws.cell(row=row, column=6, value=s["total_score"])
-        ws.cell(row=row, column=7, value=s.get("error_bonus", 0))
+        values = [
+            idx,
+            s_item["user_name"],
+            s_item.get("department_name", ""),
+            s_item.get("district_name", ""),
+            s_item["item_count"],
+            s_item["total_score"],
+            s_item.get("error_bonus", 0),
+        ]
+        for col, v in enumerate(values, 1):
+            cell = ws.cell(row=row, column=col, value=v)
+            cell.border = border
+            if col in (1, 5, 6, 7):
+                cell.alignment = Alignment(horizontal="center")
+        if s_item.get("total_score", 0) and idx <= 3:
+            ws.cell(row=row, column=6).font = Font(bold=True, color="C00000")
 
-    for i, w in enumerate([6, 12, 16, 12, 10, 10, 12], 1):
-        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = w
+    # ---------- 每个员工一个明细 sheet ----------
+    used_names = {"汇总"}
+    detail_headers = ["序号", "工作项标题", "所属部门", "区域", "得分", "考核指错", "发起时间"]
+    detail_widths = [6, 42, 16, 12, 9, 11, 18]
 
-    # Sheet2: 明细
-    ws2 = wb.create_sheet("明细")
-    headers2 = ["姓名", "工作项", "所属部门", "区域", "得分", "考核指错得分", "发起时间"]
-    for col, header in enumerate(headers2, 1):
-        cell = ws2.cell(row=1, column=col, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for s_item in summary:
+        name = s_item["user_name"] or f"用户#{s_item['user_id']}"
+        # sheet 名唯一 + Excel 合法（<=31字符，去除非法字符）
+        safe = str(name)[:31]
+        for ch in ":\\/?*[]":
+            safe = safe.replace(ch, "_")
+        sheet_name = safe
+        n = 2
+        while sheet_name in used_names:
+            suffix = f"({n})"
+            sheet_name = f"{safe[:31-len(suffix)]}{suffix}"
+            n += 1
+        used_names.add(sheet_name)
 
-    r = 2
-    for s in summary:
-        for it in s["items"]:
-            ws2.cell(row=r, column=1, value=s["user_name"])
-            ws2.cell(row=r, column=2, value=it["title"])
-            ws2.cell(row=r, column=3, value=it.get("department_name", ""))
-            ws2.cell(row=r, column=4, value=it.get("district_name", ""))
-            ws2.cell(row=r, column=5, value=it["score"])
-            eb = it.get("error_bonus", 0)
-            ws2.cell(row=r, column=6, value=eb if eb else "")
+        ws_d = wb.create_sheet(sheet_name)
+        _style_header(ws_d, detail_headers, detail_widths)
+
+        r = 2
+        for i, it in enumerate(s_item["items"], 1):
             initiated = it.get("initiated_at")
+            initiated_str = ""
             if initiated:
                 try:
                     from datetime import datetime as _dt
-                    ws2.cell(row=r, column=7, value=_dt.fromisoformat(initiated).strftime("%Y-%m-%d %H:%M"))
+                    initiated_str = _dt.fromisoformat(initiated).strftime("%Y-%m-%d %H:%M")
                 except Exception:
-                    ws2.cell(row=r, column=7, value=initiated)
+                    initiated_str = str(initiated)
+            values = [
+                i,
+                it["title"],
+                it.get("department_name", ""),
+                it.get("district_name", ""),
+                it["score"],
+                it.get("error_bonus", 0) or "",
+                initiated_str,
+            ]
+            for col, v in enumerate(values, 1):
+                cell = ws_d.cell(row=r, column=col, value=v)
+                cell.border = border
+                if col in (1, 5, 6):
+                    cell.alignment = Alignment(horizontal="center")
             r += 1
 
-    for i, w in enumerate([12, 35, 16, 12, 10, 12, 18], 1):
-        ws2.column_dimensions[ws2.cell(row=1, column=i).column_letter].width = w
+        # 底部汇总行
+        total_score = s_item["total_score"]
+        item_count = s_item["item_count"]
+        bonus_count = s_item.get("error_bonus", 0)
+        ws_d.cell(row=r, column=1, value="汇总")
+        ws_d.cell(row=r, column=2, value=f"共 {item_count} 项")
+        ws_d.cell(row=r, column=5, value=total_score)
+        ws_d.cell(row=r, column=6, value=bonus_count if bonus_count else "")
+        for col in range(1, len(detail_headers) + 1):
+            cell = ws_d.cell(row=r, column=col)
+            cell.font = total_font
+            cell.fill = total_fill
+            cell.border = border
+            if col in (1, 5, 6):
+                cell.alignment = Alignment(horizontal="center")
 
     output = BytesIO()
     wb.save(output)

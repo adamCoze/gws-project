@@ -734,6 +734,7 @@ async def admin_all_assessments(
     district_id: Optional[int] = Query(None),
     department_id: Optional[int] = Query(None),
     keyword: Optional[str] = Query(None),
+    scorer_id: Optional[int] = Query(None, description="按得分人筛选：其有分摊得分的考核单"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
 ):
@@ -742,7 +743,7 @@ async def admin_all_assessments(
         db=db, page=page, page_size=page_size,
         month=month, status=status,
         district_id=district_id, department_id=department_id,
-        keyword=keyword,
+        keyword=keyword, scorer_id=scorer_id,
     )
     return {
         "total": total,
@@ -788,32 +789,37 @@ async def admin_personal_scores(
     month: Optional[str] = Query(None),
     department_id: Optional[int] = Query(None),
     district_id: Optional[int] = Query(None),
+    scorer_id: Optional[int] = Query(None, description="只看该得分人的汇总"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
 ):
     """按得分人统计：某月已完结考核的参与人得分汇总（需监察主任及以上权限）"""
-    items = await get_personal_score_summary(db, month, department_id, district_id)
+    items = await get_personal_score_summary(db, month, department_id, district_id, scorer_id)
     return {"month": month, "total_persons": len(items), "items": items}
 
 
 @router.get("/admin/personal-scores/export")
 async def admin_export_personal_scores(
-    month: Optional[str] = Query(None),
+    month: str = Query(..., description="导出月份，必填（YYYY-MM）"),
     department_id: Optional[int] = Query(None),
     district_id: Optional[int] = Query(None),
+    scorer_id: Optional[int] = Query(None, description="只导该得分人"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(RoleLevel.REGULATOR)),
 ):
-    """导出按得分人统计 Excel（汇总+明细）"""
+    """导出按得分人统计 Excel（汇总 sheet + 每员工一个明细 sheet，底部含汇总行）"""
     from fastapi.responses import StreamingResponse
     from io import BytesIO
     from datetime import datetime as dt
 
+    if not month or len(month) != 7 or month[4] != "-":
+        raise HTTPException(status_code=400, detail="请先选择导出月份（YYYY-MM）")
+
     excel_data = await export_personal_score_excel(
-        db=db, month=month, department_id=department_id, district_id=district_id,
+        db=db, month=month, department_id=department_id, district_id=district_id, scorer_id=scorer_id,
     )
-    filename = f"个人得分统计_{month or '全部'}_{dt.now().strftime('%Y%m%d')}.xlsx"
-    ascii_fallback = f"personal_scores_{month or 'all'}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    filename = f"个人得分_{month}_{dt.now().strftime('%Y%m%d')}.xlsx"
+    ascii_fallback = f"personal_scores_{month}_{dt.now().strftime('%Y%m%d')}.xlsx"
     quoted_utf8 = quote(filename)
     return StreamingResponse(
         BytesIO(excel_data),

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Select, Space, Card, Row, Col, Input, DatePicker, Tag, message, Modal } from 'antd';
 import { ExportOutlined, SearchOutlined, BarChartOutlined } from '@ant-design/icons';
-import { assessmentApi, districtApi, departmentApi } from '../../services/api';
+import { assessmentApi, districtApi, departmentApi, userApi } from '../../services/api';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../../types';
 import type { District, Department } from '../../types';
 import dayjs from 'dayjs';
@@ -16,6 +16,7 @@ const AssessmentManagementPage: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [districts, setDistricts] = useState<District[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [users, setUsers] = useState<Array<{ id: number; real_name: string; username: string }>>([]);
 
   // 筛选条件
   const [month, setMonth] = useState<string | undefined>(undefined);
@@ -23,11 +24,18 @@ const AssessmentManagementPage: React.FC = () => {
   const [districtId, setDistrictId] = useState<number | undefined>(undefined);
   const [departmentId, setDepartmentId] = useState<number | undefined>(undefined);
   const [keyword, setKeyword] = useState<string>('');
+  const [scorerId, setScorerId] = useState<number | undefined>(undefined);
 
   // 按得分人统计
   const [statsOpen, setStatsOpen] = useState(false);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsItems, setStatsItems] = useState<any[]>([]);
+  const [statsScorerId, setStatsScorerId] = useState<number | undefined>(undefined);
+
+  // 得分导出：月份必选弹窗
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMonth, setExportMonth] = useState<string | undefined>(undefined);
+  const [exporting, setExporting] = useState(false);
 
   // 取区域和部门列表
   useEffect(() => {
@@ -42,6 +50,7 @@ const AssessmentManagementPage: React.FC = () => {
       } catch (e) {
         console.error('加载基础数据失败', e);
       }
+      userApi.listBrief().then((u) => setUsers(u)).catch(() => { /* 忽略 */ });
     };
     fetchMeta();
   }, []);
@@ -57,6 +66,7 @@ const AssessmentManagementPage: React.FC = () => {
         district_id: districtId,
         department_id: departmentId,
         keyword: keyword || undefined,
+        scorer_id: scorerId,
       });
       setItems(res.items || []);
       setTotal(res.total || 0);
@@ -83,6 +93,7 @@ const AssessmentManagementPage: React.FC = () => {
     setDistrictId(undefined);
     setDepartmentId(undefined);
     setKeyword('');
+    setScorerId(undefined);
     setPage(1);
     setTimeout(fetchData, 0);
   };
@@ -124,15 +135,21 @@ const AssessmentManagementPage: React.FC = () => {
       });
   };
 
-  // 按得分人统计
+// 按得分人统计（弹窗内可再按得分人筛选）
   const openStats = async () => {
+    setStatsScorerId(undefined);
     setStatsOpen(true);
+    await fetchStats(undefined);
+  };
+
+  const fetchStats = async (scorer?: number) => {
     setStatsLoading(true);
     try {
       const res = await assessmentApi.personalScores({
         month,
         district_id: districtId,
         department_id: departmentId,
+        scorer_id: scorer,
       });
       setStatsItems(res.items || []);
     } catch (e: any) {
@@ -142,38 +159,56 @@ const AssessmentManagementPage: React.FC = () => {
     }
   };
 
-  const handleStatsExport = () => {
-    const url = assessmentApi.personalScoreExportUrl({
-      month,
-      district_id: districtId,
-      department_id: departmentId,
-    });
-    const token = localStorage.getItem('token');
-    fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error('导出失败');
-        return res.blob();
-      })
-      .then((blob) => {
-        const a = document.createElement('a');
-        const objectUrl = URL.createObjectURL(blob);
-        a.href = objectUrl;
-        a.download = `个人得分统计_${month || '全部'}_${dayjs().format('YYYYMMDD')}.xlsx`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objectUrl);
-        message.success('导出成功');
-      })
-      .catch((err) => {
-        message.error(err.message || '导出失败');
-      });
+  const handleStatsScorerChange = (v: number | undefined) => {
+    setStatsScorerId(v);
+    fetchStats(v);
   };
 
+  // 导出：先选月份（必选），确认后自动下载
+  const openExportDialog = () => {
+    setExportMonth(month); // 默认带当前筛选月份，可改
+    setExportOpen(true);
+  };
+
+  const handleExportConfirm = async () => {
+    if (!exportMonth) {
+      message.warning('请先选择导出月份');
+      return;
+    }
+    setExporting(true);
+    try {
+      const url = assessmentApi.personalScoreExportUrl({
+        month: exportMonth,
+        district_id: districtId,
+        department_id: departmentId,
+        scorer_id: statsScorerId,
+      });
+      const token = localStorage.getItem('token');
+      const res = await fetch(url, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) {
+        let detail = '导出失败';
+        try { const j = await res.json(); detail = j.detail || detail; } catch { /* ignore */ }
+        throw new Error(detail);
+      }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = `个人得分_${exportMonth}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+      message.success('导出成功');
+      setExportOpen(false);
+    } catch (err: any) {
+      message.error(err.message || '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  
   const statsColumns = [
     { title: '排名', key: 'rank', width: 60, align: 'center' as const, render: (_: any, __: any, idx: number) => idx + 1 },
     { title: '姓名', dataIndex: 'user_name', key: 'user_name', width: 100 },
@@ -412,7 +447,7 @@ const AssessmentManagementPage: React.FC = () => {
           </Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 12 }}>
-          <Col span={12}>
+          <Col span={8}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>关键词：</span>
               <Input
@@ -424,7 +459,22 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={12} style={{ textAlign: 'right' }}>
+          <Col span={8}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ whiteSpace: 'nowrap' }}>得分人：</span>
+              <Select
+                style={{ flex: 1 }}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="全部得分人"
+                value={scorerId}
+                onChange={(v) => setScorerId(v)}
+                options={users.map((u) => ({ label: u.real_name || u.username, value: u.id }))}
+              />
+            </div>
+          </Col>
+          <Col span={8} style={{ textAlign: 'right' }}>
             <Space>
               <Button onClick={handleReset}>重置</Button>
               <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
@@ -462,14 +512,27 @@ const AssessmentManagementPage: React.FC = () => {
         width={860}
         footer={[
           <Button key="close" onClick={() => setStatsOpen(false)}>关闭</Button>,
-          <Button key="export" type="primary" icon={<ExportOutlined />} onClick={handleStatsExport}>
+          <Button key="export" type="primary" icon={<ExportOutlined />} onClick={openExportDialog}>
             导出 Excel
           </Button>,
         ]}
       >
-        <div style={{ marginBottom: 8 }}>
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <Tag color="blue">统计口径：{month ? `${month} 发起` : '全部月份发起'}的已完结（已裁定）考核</Tag>
           <span style={{ color: '#999', fontSize: 12 }}>得分 = 集团层参与人分摊（无分配时归主办人）</span>
+          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            得分人：
+            <Select
+              style={{ width: 180 }}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="全部得分人"
+              value={statsScorerId}
+              onChange={handleStatsScorerChange}
+              options={users.map((u) => ({ label: u.real_name || u.username, value: u.id }))}
+            />
+          </span>
         </div>
         <Table
           rowKey="user_id"
@@ -487,13 +550,39 @@ const AssessmentManagementPage: React.FC = () => {
                 pagination={false}
                 columns={[
                   { title: '工作项', dataIndex: 'title', key: 'title' },
-                  { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 120, render: (v: any) => v || '-' },
-                  { title: '得分', dataIndex: 'score', key: 'score', width: 80, align: 'center' as const },
-                  { title: '发起时间', dataIndex: 'initiated_at', key: 'initiated_at', width: 150, render: (v: any) => (v ? new Date(v).toLocaleDateString('zh-CN') : '-') },
+                  { title: '部门', dataIndex: 'department_name', key: 'department_name', width: 110, render: (v: any) => v || '-' },
+                  { title: '区域', dataIndex: 'district_name', key: 'district_name', width: 90, render: (v: any) => v || '-' },
+                  { title: '得分', dataIndex: 'score', key: 'score', width: 70, align: 'center' as const },
+                  { title: '考核指错', dataIndex: 'error_bonus', key: 'error_bonus', width: 90, align: 'center' as const, render: (v: any) => (v ? <Tag color="orange">指错</Tag> : '-') },
+                  { title: '发起时间', dataIndex: 'initiated_at', key: 'initiated_at', width: 140, render: (v: any) => (v ? new Date(v).toLocaleDateString('zh-CN') : '-') },
                 ]}
               />
             ),
           }}
+        />
+      </Modal>
+
+      {/* 导出得分 Excel：先选月份（必选） */}
+      <Modal
+        title="导出个人得分 Excel"
+        open={exportOpen}
+        onCancel={() => setExportOpen(false)}
+        onOk={handleExportConfirm}
+        confirmLoading={exporting}
+        okText="导出"
+        cancelText="取消"
+        okButtonProps={{ disabled: !exportMonth }}
+      >
+        <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+          请选择导出月份。导出结果为：汇总 sheet + 每位员工一个明细 sheet（含全部得分项和底部汇总行）。
+          {statsScorerId && ' 当前筛选了得分人，仅导出该员工。'}
+        </div>
+        <Select
+          style={{ width: '100%' }}
+          placeholder="选择月份（必选）"
+          value={exportMonth}
+          onChange={(v) => setExportMonth(v)}
+          options={monthOptions()}
         />
       </Modal>
     </div>

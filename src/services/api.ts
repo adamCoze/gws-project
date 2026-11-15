@@ -243,16 +243,16 @@ export const assessmentApi = {
     return res as unknown as { file_type: string; file_name: string; file_path: string };
   },
   // 管理员：全集团考核列表
-  adminAll: async (params?: { page?: number; page_size?: number; month?: string; status?: string; district_id?: number; department_id?: number; keyword?: string }): Promise<{ items: any[]; total: number; page: number; page_size: number }> => {
+  adminAll: async (params?: { page?: number; page_size?: number; month?: string; status?: string; district_id?: number; department_id?: number; keyword?: string; scorer_id?: number }): Promise<{ items: any[]; total: number; page: number; page_size: number }> => {
     const res = await api.get('/assessment/admin/all', { params });
     return res as unknown as { items: any[]; total: number; page: number; page_size: number };
   },
   // 管理员：按得分人统计
-  personalScores: async (params?: { month?: string; district_id?: number; department_id?: number }): Promise<{ items: any[]; total_persons: number; month?: string }> => {
+  personalScores: async (params?: { month?: string; district_id?: number; department_id?: number; scorer_id?: number }): Promise<{ items: any[]; total_persons: number; month?: string }> => {
     const res = await api.get('/assessment/admin/personal-scores', { params });
     return res as unknown as { items: any[]; total_persons: number; month?: string };
   },
-  personalScoreExportUrl: (params?: { month?: string; district_id?: number; department_id?: number }) => {
+  personalScoreExportUrl: (params?: { month?: string; district_id?: number; department_id?: number; scorer_id?: number }) => {
     const base = '/api/assessment/admin/personal-scores/export';
     if (!params) return base;
     const qs = new URLSearchParams();
