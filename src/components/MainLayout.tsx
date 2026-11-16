@@ -53,9 +53,7 @@ const MainLayout: React.FC = () => {
         ...(userLevel >= ROLE_LEVEL.MANAGER
           ? [{ key: '/assessment/todo', icon: <EditOutlined />, label: '待我处理' }]
           : []),
-        ...(userLevel >= ROLE_LEVEL.MANAGER
-          ? [{ key: '/assessment/pending', icon: <UnorderedListOutlined />, label: '待考核项目' }]
-          : []),
+        { key: '/assessment/pending', icon: <UnorderedListOutlined />, label: '待考核项目' },
         ...(userLevel >= ROLE_LEVEL.MANAGER
           ? [{ key: '/assessment/non-assessment', icon: <StopOutlined />, label: '非考核项' }]
           : []),

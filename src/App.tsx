@@ -73,7 +73,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="assessment/pending"
           element={
-            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+            <ProtectedRoute>
               <PendingAssessmentPage />
             </ProtectedRoute>
           }
