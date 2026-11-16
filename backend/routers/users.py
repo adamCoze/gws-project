@@ -78,11 +78,20 @@ def _normalize_secondary_roles(
         rl = item["role_level"]
         dept = item.get("department_id")
         dist = item.get("district_id")
-        # 排除与主角色完全相同的角色（等级 + 部门 + 区域一致才算重复）
-        if rl == role_level and dept == department_id and dist == district_id:
+        # L6 及以上角色（监察/集团总监/总裁/管理员）不区分部门与区域，比较时归一化为 None
+        if rl >= RoleLevel.REGULATOR:
+            cmp_dept, cmp_dist = None, None
+        else:
+            cmp_dept, cmp_dist = dept, dist
+        if role_level >= RoleLevel.REGULATOR:
+            main_dept, main_dist = None, None
+        else:
+            main_dept, main_dist = department_id, district_id
+        # 排除与主角色完全相同的角色
+        if rl == role_level and cmp_dept == main_dept and cmp_dist == main_dist:
             continue
         # 去重（按 等级 + 部门 + 区域 三元组）
-        key = (rl, dept, dist)
+        key = (rl, cmp_dept, cmp_dist)
         if key in seen:
             continue
         seen.add(key)
