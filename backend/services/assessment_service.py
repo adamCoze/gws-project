@@ -1014,7 +1014,7 @@ def _can_user_appeal(assessment: Assessment, user_id: int) -> bool:
     return user_id in _get_appeal_eligible_user_ids(assessment)
 
 
-def validate_score(total_score: int, participants: list) -> Tuple[bool, str]:
+def validate_score(total_score: float, participants: list) -> Tuple[bool, str]:
     """校验评分参数：总分档位 + 参与人分配和"""
     if total_score not in ScoreTier.TIERS:
         return False, f"总分必须是以下档位之一：{sorted(ScoreTier.TIERS)}"
@@ -1063,7 +1063,7 @@ async def _record_error_bonus_on_score(
     assessment: Assessment,
     score_level: str,
     scorer_id: int,
-    total_score: int,
+    total_score: float,
 ) -> None:
     """提交评分时预记指错得分：评分 ≠ 上一环节分 → tentative +1
 
@@ -1132,7 +1132,7 @@ async def submit_score(
     assessment_id: int,
     user: User,
     score_level: str,
-    total_score: int,
+    total_score: float,
     opinion: Optional[str] = None,
     participants: Optional[list] = None,
     attachments: Optional[list] = None,
