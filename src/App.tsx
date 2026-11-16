@@ -129,7 +129,7 @@ const AppRoutes: React.FC = () => {
         <Route
           path="admin/work-items"
           element={
-            <ProtectedRoute minLevel={ROLE_LEVEL.MANAGER}>
+            <ProtectedRoute>
               <WorkItemManagementPage />
             </ProtectedRoute>
           }

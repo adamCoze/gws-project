@@ -5,7 +5,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutline
 import { workItemApi, departmentApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
-import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, TYPE_LABELS, TYPE_COLORS } from '../../types';
+import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, ROLE_LEVEL, TYPE_LABELS, TYPE_COLORS } from '../../types';
 
 const { TextArea } = Input;
 
@@ -71,6 +71,13 @@ const WorkItemManagementPage: React.FC = () => {
   const canChange = useMemo(() => {
     if (!user) return false;
     return canChangeStatus(effectiveLevel(user), user.department_id);
+  }, [user]);
+
+  // 主办人可指定范围：经理（L3）及以上可指定他人；专员及以下只能本人主办
+  // 与后端 create_work_item 一致（后端对 L3 以下会静默改回本人，这里前端先锁住避免误选）
+  const canAssignSponsor = useMemo(() => {
+    if (!user) return false;
+    return effectiveLevel(user) >= ROLE_LEVEL.MANAGER;
   }, [user]);
 
   // Helper: compute effective status (including overdue from due_date)
@@ -245,6 +252,8 @@ const WorkItemManagementPage: React.FC = () => {
     } else {
       setEditingItem(null);
       form.resetFields();
+      // 新建时主办人默认本人；L3 以下锁定为本人（与后端一致）
+      if (user) form.setFieldsValue({ sponsor_id: user.id });
     }
     setModalVisible(true);
   };
@@ -580,6 +589,7 @@ const WorkItemManagementPage: React.FC = () => {
               showSearch
               optionFilterProp="label"
               placeholder="选择主办人"
+              disabled={!canAssignSponsor}
               options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
             />
           </Form.Item>

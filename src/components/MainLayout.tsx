@@ -59,25 +59,21 @@ const MainLayout: React.FC = () => {
           : []),
       ],
     },
-    ...(userLevel >= ROLE_LEVEL.MANAGER
-      ? [
-          {
-            key: 'admin',
-            label: '后台管理',
-            icon: <UserOutlined />,
-            children: [
-              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' }] : []),
-              ...(userLevel >= ROLE_LEVEL.REGULATOR ? [{ key: '/admin/assessments', icon: <TrophyOutlined />, label: '考核管理' }] : []),
-              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
-              ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
-              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/districts', icon: <EnvironmentOutlined />, label: '区域管理' }] : []),
-              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/departments', icon: <ApartmentOutlined />, label: '部门管理' }] : []),
-              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
-              ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/email', icon: <MailOutlined />, label: '邮箱配置' }] : []),
-            ],
-          },
-        ]
-      : []),
+    {
+      key: 'admin',
+      label: '后台管理',
+      icon: <UserOutlined />,
+      children: [
+        { key: '/admin/work-items', icon: <FileTextOutlined />, label: '工作项管理' },
+        ...(userLevel >= ROLE_LEVEL.REGULATOR ? [{ key: '/admin/assessments', icon: <TrophyOutlined />, label: '考核管理' }] : []),
+        ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/status-logs', icon: <HistoryOutlined />, label: '状态变更日志' }] : []),
+        ...(userLevel >= ROLE_LEVEL.MANAGER ? [{ key: '/admin/email-logs', icon: <UnorderedListOutlined />, label: '邮件处理日志' }] : []),
+        ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/districts', icon: <EnvironmentOutlined />, label: '区域管理' }] : []),
+        ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/departments', icon: <ApartmentOutlined />, label: '部门管理' }] : []),
+        ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
+        ...(userLevel >= ROLE_LEVEL.ADMIN ? [{ key: '/admin/email', icon: <MailOutlined />, label: '邮箱配置' }] : []),
+      ],
+    },
   ];
 
   const userMenuItems: MenuProps['items'] = [
