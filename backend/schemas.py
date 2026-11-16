@@ -414,7 +414,7 @@ class ScoreParticipantOut(BaseModel):
 # ---- 评分记录 ----
 
 class ScoreSubmitRequest(BaseModel):
-    total_score: int  # 1/5/10/20/30
+    total_score: float  # 1/2.5/4/5/10
     opinion: Optional[str] = None
     participants: List[ScoreParticipantCreate] = []
     attachments: List[AssessmentAttachmentBase] = []
@@ -426,7 +426,7 @@ class AssessmentScoreOut(BaseModel):
     level: str  # district/regulator/group
     scorer_id: int
     scorer_name: Optional[str] = None
-    total_score: int
+    total_score: float
     opinion: Optional[str] = None
     submitted_at: datetime
     participants: List[ScoreParticipantOut] = []

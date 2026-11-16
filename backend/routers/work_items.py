@@ -19,7 +19,7 @@ from schemas import (
     EmailUrlResponse, EmailLinkStatusResponse,
 )
 from auth import get_current_user, ROLE_LEVELS
-from models import RoleType
+from models import RoleType, RoleLevel
 from services.alimail_api import get_email_url
 from config import settings
 
@@ -51,20 +51,46 @@ async def _upsert_cache(db: AsyncSession, user_email: str, work_item_id: int, co
     except Exception as e:
         logger.error(f"缓存写入失败: work_item={work_item_id}, user={user_email}, error={e}")
 
-# 允许变更状态的角色
-STATUS_CHANGE_ROLES = {RoleType.regulator, RoleType.president, RoleType.admin}
-# 人事/商务部中允许变更状态的角色
-HR_COMMERCE_ALLOWED = {RoleType.manager, RoleType.staff}
+def _apply_completion_fields(item: WorkItem, old_status: Optional[str], operator_id: int):
+    """状态流转时同步 completed_at / completed_by
+
+    手动新建或手动改状态为已完成的工作项，原先不会写入完成时间与完成人，
+    导致待考核列表按月份筛选失效、跳过规则无法判断「由谁确认完成」。
+    """
+    if item.status == "completed" and old_status != "completed":
+        if not item.completed_at:
+            item.completed_at = datetime.utcnow()
+        if not item.completed_by:
+            item.completed_by = operator_id
+    elif item.status != "completed" and old_status == "completed":
+        # 从已完成回退，清空完成信息
+        item.completed_at = None
+        item.completed_by = None
+
+
+def _effective_role_level(user: User) -> int:
+    """有效角色等级 = 主角色与所有副角色中的最高等级"""
+    level = user.role_level or 0
+    for sr in (user.secondary_roles or []):
+        try:
+            lv = int(sr.get("role_level") or 0)
+        except (TypeError, ValueError):
+            lv = 0
+        if lv > level:
+            level = lv
+    return level
 
 
 def can_change_status(user: User) -> bool:
-    """检查用户是否有权限变更工作项状态"""
-    user_role = RoleType(user.role) if isinstance(user.role, str) else user.role
-    # 规管、总裁、管理员始终可以
-    if user_role in STATUS_CHANGE_ROLES:
+    """检查用户是否有权限变更工作项状态
+
+    权限（2026-11-16 调整）：
+    - 区域总监（L4）及以上：可以（含部门总监、监察主任、集团总监、总裁、管理员）
+    - 人事/商务部的经理与专员：可以
+    """
+    if _effective_role_level(user) >= RoleLevel.DISTRICT_MANAGER:
         return True
-    # 人事/商务部的经理和专员可以
-    if user_role in HR_COMMERCE_ALLOWED and user.department_id == HR_COMMERCE_DEPT_ID:
+    if _effective_role_level(user) >= RoleLevel.STAFF and user.department_id == HR_COMMERCE_DEPT_ID:
         return True
     return False
 
@@ -531,6 +557,10 @@ async def create_work_item(
             item.sponsor_id = current_user.id
     else:
         item.sponsor_id = current_user.id
+    # 新建时若已是完成状态（如忘记抄送邮件、手工补录），补完成时间与完成人
+    if item.status == WorkItemStatus.completed.value:
+        item.completed_at = item.completed_at or datetime.utcnow()
+        item.completed_by = item.completed_by or current_user.id
     db.add(item)
     await db.commit()
     await db.refresh(item)
@@ -585,6 +615,7 @@ async def update_work_item(
         raise HTTPException(status_code=404, detail="工作项不存在")
 
     update_data = data.model_dump(exclude_unset=True)
+    old_status = item.status
 
     # 如果状态变更，检查权限；无权限或尝试设置overdue则静默忽略状态字段
     if "status" in update_data and update_data["status"] != item.status:
@@ -633,6 +664,9 @@ async def update_work_item(
         else:
             item.assignee_email_prefix = None
 
+    # 状态变更时同步完成信息
+    _apply_completion_fields(item, old_status, current_user.id)
+
     item.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(item)
@@ -670,7 +704,7 @@ async def change_status(
 ):
     """变更工作项状态"""
     if not can_change_status(current_user):
-        raise HTTPException(status_code=403, detail="无权限变更工作项状态，仅规管、总裁、管理员及人事/商务部经理/专员可操作")
+        raise HTTPException(status_code=403, detail="无权限变更工作项状态：需区域总监及以上，或人事/商务部的经理/专员")
     if data.status == "overdue":
         raise HTTPException(status_code=400, detail="已逾时是系统自动状态，不可手动设置")
     result = await db.execute(
@@ -694,6 +728,7 @@ async def change_status(
 
     old_status = item.status
     item.status = data.status
+    _apply_completion_fields(item, old_status, current_user.id)
     item.updated_at = datetime.utcnow()
 
     log = StatusChangeLog(

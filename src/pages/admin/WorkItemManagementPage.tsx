@@ -19,10 +19,19 @@ interface UserBrief {
   email_prefix: string;
 }
 
-function canChangeStatus(role: string, departmentId?: number | null): boolean {
-  const roleLevel = ROLE_LEVELS[role as RoleType] || 0;
+// 有效角色等级 = 主角色与所有副角色中的最高等级
+function effectiveLevel(user: { role_level?: number; role?: string; secondary_roles?: { role_level: number }[] }): number {
+  let level = user.role_level || ROLE_LEVELS[user.role as RoleType] || 0;
+  for (const sr of user.secondary_roles || []) {
+    if (sr.role_level > level) level = sr.role_level;
+  }
+  return level;
+}
+
+// 状态变更权限（2026-11-16 调整）：区域总监及以上，或人事/商务部的经理与专员
+function canChangeStatus(roleLevel: number, departmentId?: number | null): boolean {
   if (roleLevel >= 4) return true;
-  if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1 && roleLevel <= 2) return true;
+  if (departmentId === HR_COMMERCE_DEPT_ID && roleLevel >= 1) return true;
   return false;
 }
 
@@ -53,15 +62,15 @@ const WorkItemManagementPage: React.FC = () => {
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | null>(null);
 
+  // 删除权限与后端一致：仅管理员与总裁
   const canDelete = useMemo(() => {
     if (!user) return false;
-    const level = ROLE_LEVELS[user.role as RoleType] || 0;
-    return level >= 5;
+    return user.role === 'admin' || user.role === 'president';
   }, [user]);
 
   const canChange = useMemo(() => {
     if (!user) return false;
-    return canChangeStatus(user.role, user.department_id);
+    return canChangeStatus(effectiveLevel(user), user.department_id);
   }, [user]);
 
   // Helper: compute effective status (including overdue from due_date)

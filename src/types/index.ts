@@ -320,7 +320,7 @@ export const OPERATION_ACTION_LABELS: Record<string, string> = {
 };
 
 // 总分档位
-export const SCORE_TIERS = [1, 5, 10, 20, 30];
+export const SCORE_TIERS = [1, 2.5, 4, 5, 10];
 
 // 凭证附件
 export interface AssessmentAttachment {

@@ -301,7 +301,7 @@ class AttachmentType(str, Enum):
 
 class ScoreTier:
     """总分档位"""
-    TIERS = {1, 5, 10, 20, 30}
+    TIERS = {1, 2.5, 4, 5, 10}
 
 
 class SupplementRequestStatus(str, Enum):
@@ -383,7 +383,7 @@ class AssessmentScore(Base):
     level = Column(String(20), nullable=False)  # district/regulator/group
     scorer_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     scorer_role_level = Column(Integer, nullable=True)
-    total_score = Column(Integer, nullable=False)  # 1/5/10/20/30
+    total_score = Column(Float, nullable=False)  # 1/2.5/4/5/10
     opinion = Column(Text, nullable=True)
     submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -538,9 +538,9 @@ class AssessmentErrorBonus(Base):
     level = Column(String(20), nullable=False)          # regulator / group
     bonus = Column(Integer, default=1, nullable=False)  # 当前有效加分（tentative/confirmed=1，retracted=0）
     status = Column(String(20), default="tentative", nullable=False)  # tentative/confirmed/retracted
-    prev_level_score = Column(Integer, nullable=True)   # 上一环节分（参照）
-    own_score = Column(Integer, nullable=False)         # 本人评分
-    ruling_score = Column(Integer, nullable=True)       # 裁定分（结算时填）
+    prev_level_score = Column(Float, nullable=True)   # 上一环节分（参照）
+    own_score = Column(Float, nullable=False)         # 本人评分
+    ruling_score = Column(Float, nullable=True)       # 裁定分（结算时填）
     month = Column(String(7), nullable=False, index=True)  # 归属月 YYYY-MM（按考核发起时间）
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
