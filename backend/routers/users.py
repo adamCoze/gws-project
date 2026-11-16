@@ -43,11 +43,20 @@ _SECONDARY_ROLE_LABELS = {
 }
 
 
-def _normalize_secondary_roles(secondary_roles, role_level: int) -> list:
+def _normalize_secondary_roles(
+    secondary_roles,
+    role_level: int,
+    department_id=None,
+    district_id=None,
+) -> list:
     """规范化副角色列表（对象数组）：去重、排除主角色、校验部门/区域、排序
 
     格式：[{"role_level": 3, "department_id": 5, "district_id": 2}, ...]
     兼容旧格式（整数数组），自动包装为对象数组。
+
+    去重规则（2026-11-16 调整）：按「角色等级 + 部门 + 区域」三元组去重，
+    允许同一个人在同一等级下兼任多个部门/区域（如同时担任两个部门的部门总监）。
+    与主角色完全相同的条目会被排除。
     """
     if not secondary_roles:
         return []
@@ -67,13 +76,16 @@ def _normalize_secondary_roles(secondary_roles, role_level: int) -> list:
             continue
 
         rl = item["role_level"]
-        # 排除主角色
-        if rl == role_level:
+        dept = item.get("department_id")
+        dist = item.get("district_id")
+        # 排除与主角色完全相同的角色（等级 + 部门 + 区域一致才算重复）
+        if rl == role_level and dept == department_id and dist == district_id:
             continue
-        # 去重（按 role_level）
-        if rl in seen:
+        # 去重（按 等级 + 部门 + 区域 三元组）
+        key = (rl, dept, dist)
+        if key in seen:
             continue
-        seen.add(rl)
+        seen.add(key)
 
         # 校验部门/区域必填
         label = _SECONDARY_ROLE_LABELS.get(rl, f"等级{rl}")
@@ -129,7 +141,9 @@ async def create_user(
     _validate_role_fields(data.role_level, data.department_id, data.district_id)
 
     # 规范化副角色
-    secondary_roles = _normalize_secondary_roles(data.secondary_roles, data.role_level)
+    secondary_roles = _normalize_secondary_roles(
+        data.secondary_roles, data.role_level, data.department_id, data.district_id
+    )
 
     user = User(
         username=data.username,
@@ -177,7 +191,10 @@ async def update_user(
         # 以更新后的 role_level 为准（如果同时改了主角色）
         effective_role_level = update_data.get("role_level", user.role_level)
         update_data["secondary_roles"] = _normalize_secondary_roles(
-            update_data["secondary_roles"], effective_role_level
+            update_data["secondary_roles"],
+            effective_role_level,
+            update_data.get("department_id", user.department_id),
+            update_data.get("district_id", user.district_id),
         )
 
     # 角色联动校验（如果主角色或部门/区域有变动）

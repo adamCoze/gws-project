@@ -59,13 +59,12 @@ const UserManagementPage: React.FC = () => {
     return { showDept: true, showDistrict: true, deptRequired: true, districtRequired: false };
   }, [selectedRoleLevel]);
 
-  // 副角色可用等级选项：排除主角色、排除规管(6)和集团总监(7)
-  const secondaryRoleOptions = useMemo(() => {
-    const mainLevel = selectedRoleLevel ?? 2;
-    return ROLE_LEVEL_OPTIONS.filter(
-      (opt) => opt.value !== mainLevel && opt.value !== ROLE_LEVEL.REGULATOR && opt.value !== ROLE_LEVEL.GROUP_DIRECTOR
-    );
-  }, [selectedRoleLevel]);
+  // 副角色可用等级选项：排除规管(6)和集团总监(7)
+  // 同等级可配多个（不同部门/区域），允许一人兼任多个部门总监
+  const secondaryRoleOptions = useMemo(
+    () => ROLE_LEVEL_OPTIONS.filter((opt) => opt.value !== ROLE_LEVEL.REGULATOR && opt.value !== ROLE_LEVEL.GROUP_DIRECTOR),
+    []
+  );
 
   // 副角色列表（对象数组）
   const [secondaryRoleList, setSecondaryRoleList] = useState<
@@ -104,8 +103,24 @@ const UserManagementPage: React.FC = () => {
       message.warning('请选择区域');
       return;
     }
-    // 检查是否重复
-    if (secondaryRoleList.some((s) => s.role_level === newSecRoleLevel)) {
+    // 检查是否重复：按「等级 + 部门 + 区域」判断，允许同等级兼任不同部门/区域
+    const deptId = newSecDeptId ?? null;
+    const districtId = newSecDistrictId ?? null;
+    const mainLevel = form.getFieldValue('role_level');
+    const mainDept = form.getFieldValue('department_id') ?? null;
+    const mainDistrict = form.getFieldValue('district_id') ?? null;
+    if (newSecRoleLevel === mainLevel && deptId === mainDept && districtId === mainDistrict) {
+      message.warning('该角色与主角色相同，无需重复添加');
+      return;
+    }
+    if (
+      secondaryRoleList.some(
+        (s) =>
+          s.role_level === newSecRoleLevel &&
+          (s.department_id ?? null) === deptId &&
+          (s.district_id ?? null) === districtId
+      )
+    ) {
       message.warning('该副角色已添加');
       return;
     }
