@@ -25,6 +25,8 @@ const PendingAssessmentPage: React.FC = () => {
   const [keyword, setKeyword] = useState('');
   const [loading, setLoading] = useState(false);
   const [sponsorFilter, setSponsorFilter] = useState<number | undefined>(undefined);
+  const [districtFilter, setDistrictFilter] = useState<number | undefined>(undefined);
+  const [districts, setDistricts] = useState<{ id: number; name: string }[]>([]);
   const [users, setUsers] = useState<{ id: number; real_name: string; username: string }[]>([]);
   const [editTarget, setEditTarget] = useState<WorkItem | null>(null);
 
@@ -74,11 +76,17 @@ const PendingAssessmentPage: React.FC = () => {
   const [markRemark, setMarkRemark] = useState('');
   const [marking, setMarking] = useState(false);
 
-  const fetchData = async (p = page, ps = pageSize, kw = keyword, sp: number | undefined = sponsorFilter) => {
+  const fetchData = async (
+    p = page,
+    ps = pageSize,
+    kw = keyword,
+    sp: number | undefined = sponsorFilter,
+    dt: number | undefined = districtFilter,
+  ) => {
     if (sp !== undefined) setSponsorFilter(sp);
     setLoading(true);
     try {
-      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined, sponsor_id: sp });
+      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined, sponsor_id: sp, district_id: dt });
       setItems(res.items);
       setTotal(res.total);
     } catch (e: any) {
@@ -92,6 +100,7 @@ const PendingAssessmentPage: React.FC = () => {
     fetchData(1, pageSize, keyword);
     setPage(1);
     userApi.listBrief().then((u) => setUsers(u)).catch(() => { /* 忽略 */ });
+    districtApi.list().then((d) => setDistricts(d as unknown as { id: number; name: string }[])).catch(() => { /* 忽略 */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -244,6 +253,14 @@ const PendingAssessmentPage: React.FC = () => {
             value={sponsorFilter}
             onChange={(v) => { setSponsorFilter(v); setPage(1); fetchData(1, pageSize, keyword, v); }}
             options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
+          />
+          <Select
+            allowClear
+            placeholder="按区域筛选"
+            style={{ width: 130 }}
+            value={districtFilter}
+            onChange={(v) => { setDistrictFilter(v); setPage(1); fetchData(1, pageSize, keyword, sponsorFilter, v); }}
+            options={districts.map((d) => ({ value: d.id, label: d.name }))}
           />
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>

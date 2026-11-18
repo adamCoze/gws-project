@@ -336,6 +336,38 @@ async def _run_migrations():
                 logger.info(f"迁移 v14：已回填 {_filled}/{len(_items)} 条工作项区域")
                 new_version = 14
 
+            if current_version < 15:
+                # 2026-11-18 业务口径：没有区域的员工，其工作区域一律归香港；
+                # 区域推不出来的工作项同样归香港，保证不存在「未分配」。
+                from models import User as _User15, WorkItem as _WI15
+
+                _res = await session.execute(
+                    text("UPDATE users SET district_id = 1 WHERE district_id IS NULL")
+                )
+                logger.info(f"迁移 v15：{_res.rowcount} 个无区域员工已归入香港区")
+
+                import re as _re15
+                _users15 = (await session.execute(select(_User15))).scalars().all()
+                _id_dist15 = {u.id: u.district_id for u in _users15}
+                _prefix_dist15 = {u.email_prefix: u.district_id for u in _users15 if u.email_prefix and u.district_id}
+                _items15 = (await session.execute(
+                    select(_WI15).where(_WI15.district_id.is_(None))
+                )).scalars().all()
+                for _it in _items15:
+                    _d = _id_dist15.get(_it.assignee_id) if _it.assignee_id else None
+                    if not _d and _it.assignee_email_prefix:
+                        _ds = set()
+                        for _p in _re15.split(r"[,\s]+", _it.assignee_email_prefix.strip()):
+                            if _p and _prefix_dist15.get(_p):
+                                _ds.add(_prefix_dist15[_p])
+                        if len(_ds) == 1:
+                            _d = _ds.pop()
+                    if not _d and _it.sponsor_id:
+                        _d = _id_dist15.get(_it.sponsor_id)
+                    _it.district_id = _d or 1
+                logger.info(f"迁移 v15：{len(_items15)} 条未分配工作项已补区域")
+                new_version = 15
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

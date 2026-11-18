@@ -602,6 +602,9 @@ async def _process_email(
                     if _sender_prefix:
                         _r = await db.execute(select(User.district_id).where(User.email_prefix == _sender_prefix))
                         district_id = _r.scalar_one_or_none()
+                # 都推不出来 → 按业务口径归香港（2026-11-18）
+                if not district_id:
+                    district_id = 1
 
                 item = WorkItem(
                     title=analysis.get("title", subject[:100]),

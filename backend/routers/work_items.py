@@ -153,7 +153,11 @@ def in_scope(item: WorkItem, user: User, scope: Optional[dict] = None) -> bool:
 async def resolve_district_id(db: AsyncSession, assignee_id: Optional[int],
                               assignee_prefix: Optional[str],
                               sponsor_id: Optional[int]) -> Optional[int]:
-    """推导工作项区域：负责人区域 → 负责人邮箱前缀对应账号区域 → 主办人区域"""
+    """推导工作项区域：负责人区域 → 负责人邮箱前缀对应账号区域 → 主办人区域 → 默认香港
+
+    2026-11-18 业务口径：没有区域的人/推不出来的工作项，区域一律归香港。
+    """
+    HONGKONG_DISTRICT_ID = 1
     if assignee_id:
         row = await db.execute(select(User.district_id).where(User.id == assignee_id))
         d = row.scalar_one_or_none()
@@ -173,7 +177,7 @@ async def resolve_district_id(db: AsyncSession, assignee_id: Optional[int],
         d = row.scalar_one_or_none()
         if d:
             return d
-    return None
+    return HONGKONG_DISTRICT_ID
 
 
 def can_change_status(user: User) -> bool:

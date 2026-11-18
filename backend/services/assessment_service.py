@@ -242,6 +242,17 @@ def get_data_scope_filter(user: User, table, prefix: str = ""):
 HONGKONG_DISTRICT_ID = 1  # 香港区默认 ID
 
 
+def work_item_district_condition(district_ids: List[int]):
+    """工作项区域过滤条件（按 work_items.district_id，2026-11-18 起不再走主办人区域）。
+
+    district_id 为空的历史数据按「未分配=香港」处理，与业务口径保持一致。
+    """
+    conds = [WorkItem.district_id.in_(list(district_ids))]
+    if HONGKONG_DISTRICT_ID in district_ids:
+        conds.append(WorkItem.district_id.is_(None))
+    return or_(*conds)
+
+
 async def get_work_item_district_id(
     db: AsyncSession,
     work_item: WorkItem,
@@ -458,8 +469,7 @@ async def get_pending_items(
     query = query.where(WorkItem.id.not_in(subq_non))
 
     # 权限过滤
-    # 注意：WorkItem 没有 district_id 字段，区域维度通过 sponsor.district_id 判断
-    # 工作项区域 = sponsor 的区域，sponsor 无区域则默认香港区
+    # 工作项区域以 work_items.district_id 为准（2026-11-18 起），未分配视为香港
     level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
         pass  # 全部可见
@@ -468,35 +478,16 @@ async def get_pending_items(
         if dept_ids:
             query = query.where(WorkItem.department_id.in_(dept_ids))
         else:
-            # 纯区域角色：按工作项区域（sponsor 区域）过滤
+            # 纯区域角色：按工作项区域过滤
             district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
             if district_ids:
-                # sponsor 有区域且在范围内，或 sponsor 无区域（默认香港=1）且香港在范围内
-                subq = select(User.id).where(
-                    or_(
-                        User.district_id.in_(district_ids),
-                        and_(
-                            User.district_id.is_(None),
-                            HONGKONG_DISTRICT_ID in district_ids,
-                        ),
-                    )
-                )
-                query = query.where(WorkItem.sponsor_id.in_(subq))
+                query = query.where(work_item_district_condition(district_ids))
             else:
                 query = query.where(WorkItem.sponsor_id == user.id)
     elif level >= RoleLevel.DISTRICT_MANAGER:
         district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
         if district_ids:
-            subq = select(User.id).where(
-                or_(
-                    User.district_id.in_(district_ids),
-                    and_(
-                        User.district_id.is_(None),
-                        HONGKONG_DISTRICT_ID in district_ids,
-                    ),
-                )
-            )
-            query = query.where(WorkItem.sponsor_id.in_(subq))
+            query = query.where(work_item_district_condition(district_ids))
         else:
             query = query.where(WorkItem.sponsor_id == user.id)
     else:
@@ -510,18 +501,8 @@ async def get_pending_items(
     if department_id:
         query = query.where(WorkItem.department_id == department_id)
     if district_id:
-        # 按工作项区域筛选（区域 = sponsor 区域，无区域默认香港）
-        if district_id == HONGKONG_DISTRICT_ID:
-            # 香港区包含：sponsor 显式在香港 + sponsor 无区域（默认香港）
-            subq = select(User.id).where(
-                or_(
-                    User.district_id == district_id,
-                    User.district_id.is_(None),
-                )
-            )
-        else:
-            subq = select(User.id).where(User.district_id == district_id)
-        query = query.where(WorkItem.sponsor_id.in_(subq))
+        # 按工作项区域筛选（work_items.district_id，未分配计入香港）
+        query = query.where(work_item_district_condition([district_id]))
     if month:
         # 按完成月份筛选
         # month格式: YYYY-MM
@@ -1891,7 +1872,7 @@ async def get_non_assessment_list(
     """获取非考核项列表"""
     query = select(NonAssessmentItem).where(NonAssessmentItem.is_active == True)  # noqa
 
-    # 权限过滤
+    # 权限过滤（工作项区域以 work_items.district_id 为准，未分配视为香港）
     level = _get_effective_role_level(user)
     if level >= RoleLevel.REGULATOR:
         pass
@@ -1902,20 +1883,11 @@ async def get_non_assessment_list(
                 NonAssessmentItem.work_item.has(WorkItem.department_id.in_(dept_ids))
             )
         else:
-            # 纯区域角色：按工作项区域（sponsor 区域）过滤
+            # 纯区域角色：按工作项区域过滤
             district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
             if district_ids:
-                subq = select(User.id).where(
-                    or_(
-                        User.district_id.in_(district_ids),
-                        and_(
-                            User.district_id.is_(None),
-                            HONGKONG_DISTRICT_ID in district_ids,
-                        ),
-                    )
-                )
                 query = query.where(
-                    NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
+                    NonAssessmentItem.work_item.has(work_item_district_condition(district_ids))
                 )
             else:
                 query = query.where(
@@ -1924,17 +1896,8 @@ async def get_non_assessment_list(
     elif level >= RoleLevel.DISTRICT_MANAGER:
         district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
         if district_ids:
-            subq = select(User.id).where(
-                or_(
-                    User.district_id.in_(district_ids),
-                    and_(
-                        User.district_id.is_(None),
-                        HONGKONG_DISTRICT_ID in district_ids,
-                    ),
-                )
-            )
             query = query.where(
-                NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
+                NonAssessmentItem.work_item.has(work_item_district_condition(district_ids))
             )
         else:
             query = query.where(
@@ -1954,18 +1917,9 @@ async def get_non_assessment_list(
             NonAssessmentItem.work_item.has(WorkItem.department_id == department_id)
         )
     if district_id:
-        # 按工作项区域筛选（sponsor 区域，无则默认香港）
-        if district_id == HONGKONG_DISTRICT_ID:
-            subq = select(User.id).where(
-                or_(
-                    User.district_id == district_id,
-                    User.district_id.is_(None),
-                )
-            )
-        else:
-            subq = select(User.id).where(User.district_id == district_id)
+        # 按工作项区域筛选（work_items.district_id，未分配计入香港）
         query = query.where(
-            NonAssessmentItem.work_item.has(WorkItem.sponsor_id.in_(subq))
+            NonAssessmentItem.work_item.has(work_item_district_condition([district_id]))
         )
     if month:
         from sqlalchemy import text as sa_text
