@@ -2,9 +2,9 @@ import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, notification, Popconfirm, Tooltip, Row, Col, Card } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, CaretUpOutlined, CaretDownOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
-import { workItemApi, departmentApi, userApi } from '../../services/api';
+import { workItemApi, departmentApi, districtApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
-import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
+import type { WorkItem, Department, District, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, ROLE_LEVEL, TYPE_LABELS, TYPE_COLORS } from '../../types';
 
 const { TextArea } = Input;
@@ -38,6 +38,7 @@ function canChangeStatus(roleLevel: number, departmentId?: number | null): boole
 const WorkItemManagementPage: React.FC = () => {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [districts, setDistricts] = useState<District[]>([]);
   const [users, setUsers] = useState<UserBrief[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -55,6 +56,7 @@ const WorkItemManagementPage: React.FC = () => {
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const [filterStatus, setFilterStatus] = useState<string | undefined>(undefined);
   const [filterDept, setFilterDept] = useState<number | undefined>(undefined);
+  const [filterDistrict, setFilterDistrict] = useState<number | undefined>(undefined);
   const [filterAssignee, setFilterAssignee] = useState<number | undefined>(undefined);
   const [filterSponsor, setFilterSponsor] = useState<number | undefined>(undefined);
 
@@ -112,6 +114,13 @@ const WorkItemManagementPage: React.FC = () => {
     }
 
     try {
+      const districtsData = await districtApi.list();
+      setDistricts(districtsData);
+    } catch (e) {
+      console.error('Failed to fetch districts:', e);
+    }
+
+    try {
       const usersData = await userApi.listBrief();
       setUsers(usersData);
     } catch (e) {
@@ -155,6 +164,9 @@ const WorkItemManagementPage: React.FC = () => {
     }
     if (filterDept) {
       result = result.filter((i) => i.department_id === filterDept);
+    }
+    if (filterDistrict) {
+      result = result.filter((i) => i.district_id === filterDistrict);
     }
     if (filterAssignee) {
       const assigneeUser = users.find((u) => u.id === filterAssignee);
@@ -218,7 +230,7 @@ const WorkItemManagementPage: React.FC = () => {
     }
 
     return result;
-  }, [items, filterType, filterStatus, filterDept, filterAssignee, filterSponsor, sortField, sortOrder, users]);
+  }, [items, filterType, filterStatus, filterDept, filterDistrict, filterAssignee, filterSponsor, sortField, sortOrder, users]);
 
   const resolveAssigneeIds = (item: WorkItem): number[] => {
     if (item.assignee_email_prefix) {
@@ -415,7 +427,7 @@ const WorkItemManagementPage: React.FC = () => {
   };
 
 
-  const hasActiveFilters = filterType || filterStatus || filterDept || filterAssignee || filterSponsor || sortField;
+  const hasActiveFilters = filterType || filterStatus || filterDept || filterDistrict || filterAssignee || filterSponsor || sortField;
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
@@ -437,6 +449,10 @@ const WorkItemManagementPage: React.FC = () => {
     {
       title: renderSortTitle('部门', 'department'), key: 'department_id', width: 120,
       render: (_: unknown, record: WorkItem) => record.department?.name || '-',
+    },
+    {
+      title: '区域', key: 'district', width: 90,
+      render: (_: unknown, record: WorkItem) => record.district?.name || '未分配',
     },
     {
       title: renderSortTitle('负责人', 'assignee'), key: 'assignee', width: 120,
@@ -530,6 +546,16 @@ const WorkItemManagementPage: React.FC = () => {
           <Col>
             <Select
               allowClear
+              placeholder="区域"
+              value={filterDistrict}
+              onChange={setFilterDistrict}
+              style={{ width: 110 }}
+              options={districts.map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </Col>
+          <Col>
+            <Select
+              allowClear
               showSearch
               placeholder="负责人"
               value={filterAssignee}
@@ -583,6 +609,9 @@ const WorkItemManagementPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="department_id" label="部门">
             <Select allowClear options={departments.map((d) => ({ value: d.id, label: d.name }))} />
+          </Form.Item>
+          <Form.Item name="district_id" label="区域" extra="留空时按负责人/主办人自动带出">
+            <Select allowClear options={districts.map((d) => ({ value: d.id, label: d.name }))} />
           </Form.Item>
           <Form.Item name="sponsor_id" label="主办人" rules={[{ required: true, message: '请选择主办人' }]}>
             <Select
