@@ -33,6 +33,7 @@ body {
   .ant-modal-root .ant-modal-wrap {
     display: flex;
     align-items: flex-end;
+    padding: 0;
   }
 
   .ant-modal {
