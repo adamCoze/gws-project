@@ -125,7 +125,7 @@ async def _get_pending_items_grouped(db: AsyncSession) -> dict:
     """
     result = await db.execute(
         select(WorkItem)
-        .options(selectinload(WorkItem.department))
+        .options(selectinload(WorkItem.department), selectinload(WorkItem.district))
         .where(WorkItem.status == "pending")
         .order_by(WorkItem.department_id, WorkItem.due_date)
     )
@@ -148,7 +148,7 @@ async def _get_overdue_items_grouped(db: AsyncSession) -> dict:
     today_str = date.today().strftime("%Y-%m-%d")
     result = await db.execute(
         select(WorkItem)
-        .options(selectinload(WorkItem.department))
+        .options(selectinload(WorkItem.department), selectinload(WorkItem.district))
         .where(
             WorkItem.status == "pending",
             WorkItem.due_date < today_str,

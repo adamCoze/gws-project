@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from database import get_db
 from models import WorkItem, Department, User, WorkItemStatus, StatusChangeLog
 from schemas import KanbanDeptData, WorkItemOut
-from routers.work_items import _resolve_assignee_names
+from routers.work_items import _resolve_assignee_names, work_item_scope, scope_conditions
 from auth import get_current_user, ROLE_LEVELS
 
 router = APIRouter(prefix="/kanban", tags=["看板"])
@@ -31,6 +31,20 @@ async def get_kanban(
     departments = dept_result.scalars().all()
 
     user_level = ROLE_LEVELS.get(user.role, 0)
+    scope_conds = scope_conditions(user)
+
+    # 受限用户只展示有权限的部门列，避免出现全空列
+    if scope_conds is not None:
+        _scope = work_item_scope(user)
+        _allowed = set(_scope["dept_ids"])
+        if _scope["district_ids"]:
+            _rows = await db.execute(
+                select(WorkItem.department_id)
+                .where(WorkItem.district_id.in_(list(_scope["district_ids"])))
+                .distinct()
+            )
+            _allowed |= {r[0] for r in _rows.all() if r[0]}
+        departments = [d for d in departments if d.id in _allowed]
 
     kanban_data = []
     for dept in departments:
@@ -40,6 +54,7 @@ async def get_kanban(
             .where(WorkItem.department_id == dept.id)
             .options(
                 selectinload(WorkItem.department),
+                selectinload(WorkItem.district),
                 selectinload(WorkItem.sponsor).selectinload(User.department),
                 selectinload(WorkItem.sponsor).selectinload(User.district),
                 selectinload(WorkItem.assignee).selectinload(User.department),
@@ -49,6 +64,9 @@ async def get_kanban(
                 selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
             )
         )
+        # 数据范围（部门∪区域∪本人主办/负责）
+        if scope_conds is not None:
+            item_query = item_query.where(or_(*scope_conds))
         # 机密过滤
         if user_level < 4:
             item_query = item_query.where(

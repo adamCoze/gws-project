@@ -177,6 +177,7 @@ export interface WorkItem {
   item_type: WorkItemType;
   status: WorkItemStatus;
   department_id?: number;
+  district_id?: number;
   assignee_id?: number;
   assignee_email_prefix?: string;
   assignee_names?: string;
@@ -194,6 +195,7 @@ export interface WorkItem {
   created_at: string;
   updated_at: string;
   department?: Department;
+  district?: District;
   assignee?: User;
   sponsor?: User;
   status_logs?: StatusChangeLog[];

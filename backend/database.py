@@ -301,6 +301,41 @@ async def _run_migrations():
                 logger.info("迁移 v13：assessments 表新增 AI 初评 5 字段；指错得分表随 create_all 创建")
                 new_version = 13
 
+            # ---- v14: work_items 表新增 district_id（工作项区域）+ 按负责人/主办人回填 ----
+            if current_version < 14:
+                if not await _column_exists("work_items", "district_id"):
+                    await session.execute(text("ALTER TABLE work_items ADD COLUMN district_id INTEGER"))
+                    logger.info("迁移 v14：work_items 表新增 district_id 字段")
+
+                # 回填：负责人(district) → 负责人邮箱前缀(district) → 主办人(district)
+                import re as _re
+                from models import User as _User, WorkItem as _WI
+
+                _users = (await session.execute(select(_User))).scalars().all()
+                _id_dist = {u.id: u.district_id for u in _users}
+                _prefix_dist = {u.email_prefix: u.district_id for u in _users if u.email_prefix and u.district_id}
+
+                _items = (await session.execute(
+                    select(_WI).where(_WI.district_id.is_(None))
+                )).scalars().all()
+                _filled = 0
+                for _it in _items:
+                    _d = _id_dist.get(_it.assignee_id) if _it.assignee_id else None
+                    if not _d and _it.assignee_email_prefix:
+                        _ds = set()
+                        for _p in _re.split(r"[,\s]+", _it.assignee_email_prefix.strip()):
+                            if _p and _prefix_dist.get(_p):
+                                _ds.add(_prefix_dist[_p])
+                        if len(_ds) == 1:
+                            _d = _ds.pop()
+                    if not _d and _it.sponsor_id:
+                        _d = _id_dist.get(_it.sponsor_id)
+                    if _d:
+                        _it.district_id = _d
+                        _filled += 1
+                logger.info(f"迁移 v14：已回填 {_filled}/{len(_items)} 条工作项区域")
+                new_version = 14
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

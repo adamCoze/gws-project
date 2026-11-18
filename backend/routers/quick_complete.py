@@ -35,7 +35,7 @@ async def quick_complete_page(
     
     result = await db.execute(
         select(WorkItem)
-        .options(selectinload(WorkItem.department))
+        .options(selectinload(WorkItem.department), selectinload(WorkItem.district))
         .where(WorkItem.id == item_id)
     )
     item = result.scalar_one_or_none()
@@ -155,7 +155,7 @@ async def quick_complete_api(
     
     result = await db.execute(
         select(WorkItem)
-        .options(selectinload(WorkItem.department))
+        .options(selectinload(WorkItem.department), selectinload(WorkItem.district))
         .where(WorkItem.id == item_id)
     )
     item = result.scalar_one_or_none()

@@ -533,6 +533,7 @@ async def get_pending_items(
     # 加载关联
     query = query.options(
         selectinload(WorkItem.department),
+        selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor),
     )
 
@@ -574,7 +575,7 @@ async def initiate_assessment(
     # 检查工作项
     result = await db.execute(
         select(WorkItem)
-        .options(selectinload(WorkItem.department), selectinload(WorkItem.sponsor))
+        .options(selectinload(WorkItem.department), selectinload(WorkItem.district), selectinload(WorkItem.sponsor))
         .where(WorkItem.id == work_item_id)
     )
     work_item = result.scalar_one_or_none()

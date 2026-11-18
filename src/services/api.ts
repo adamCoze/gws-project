@@ -43,7 +43,7 @@ export const authApi = {
 
 // Work Items
 export const workItemApi = {
-  list: async (params?: { department_id?: number; status?: string; assignee_email_prefix?: string; page_size?: number }): Promise<WorkItem[]> => {
+  list: async (params?: { department_id?: number; district_id?: number; status?: string; keyword?: string; assignee_email_prefix?: string; page_size?: number }): Promise<WorkItem[]> => {
     const res = await api.get('/work-items', { params });
     return res as unknown as WorkItem[];
   },

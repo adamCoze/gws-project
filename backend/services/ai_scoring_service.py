@@ -176,6 +176,7 @@ async def run_ai_scoring(assessment_id: int) -> None:
                     select(Assessment)
                     .options(
                         selectinload(Assessment.work_item).selectinload(WorkItem.department),
+                        selectinload(WorkItem.district),
                     )
                     .where(Assessment.id == assessment_id)
                 )

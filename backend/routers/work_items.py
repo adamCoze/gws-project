@@ -81,6 +81,101 @@ def _effective_role_level(user: User) -> int:
     return level
 
 
+def work_item_scope(user: User) -> dict:
+    """工作项数据范围（2026-11-18 引入）
+
+    返回 {all: bool, dept_ids: set, district_ids: set}
+    - 全集团：管理员/总裁、L6 监察及以上、人事/商务部（负责全集团补录与状态变更）
+    - 部门：本人各角色（主+副）所属部门（L3 经理 / L5 部门总监 / L2 专员看本部门）
+    - 区域：L4 区总及以上角色所属区域
+    实际过滤时三者取并集，并额外包含「本人主办或本人负责」的工作项。
+    """
+    roles = [{
+        "role_level": user.role_level or 0,
+        "department_id": user.department_id,
+        "district_id": user.district_id,
+    }]
+    for sr in (user.secondary_roles or []):
+        try:
+            lv = int(sr.get("role_level") or 0)
+        except (TypeError, ValueError):
+            lv = 0
+        roles.append({
+            "role_level": lv,
+            "department_id": sr.get("department_id"),
+            "district_id": sr.get("district_id"),
+        })
+
+    level = max((r["role_level"] for r in roles), default=0)
+    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
+
+    if role_str in ("admin", "president") or level >= RoleLevel.REGULATOR:
+        return {"all": True, "dept_ids": set(), "district_ids": set()}
+
+    if any(r["department_id"] == HR_COMMERCE_DEPT_ID for r in roles):
+        return {"all": True, "dept_ids": set(), "district_ids": set()}
+
+    dept_ids = {r["department_id"] for r in roles if r["department_id"]}
+    district_ids = {
+        r["district_id"] for r in roles
+        if r["district_id"] and r["role_level"] >= RoleLevel.DISTRICT_MANAGER
+    }
+    return {"all": False, "dept_ids": dept_ids, "district_ids": district_ids}
+
+
+def scope_conditions(user: User, scope: Optional[dict] = None):
+    """把数据范围转成 SQL 条件列表；全集团返回 None"""
+    scope = scope or work_item_scope(user)
+    if scope["all"]:
+        return None
+    conds = [WorkItem.sponsor_id == user.id, WorkItem.assignee_id == user.id]
+    if scope["dept_ids"]:
+        conds.append(WorkItem.department_id.in_(list(scope["dept_ids"])))
+    if scope["district_ids"]:
+        conds.append(WorkItem.district_id.in_(list(scope["district_ids"])))
+    return conds
+
+
+def in_scope(item: WorkItem, user: User, scope: Optional[dict] = None) -> bool:
+    """判断单条工作项是否在用户数据范围内（用于写操作校验）"""
+    scope = scope or work_item_scope(user)
+    if scope["all"]:
+        return True
+    if item.sponsor_id == user.id or item.assignee_id == user.id:
+        return True
+    if item.department_id and item.department_id in scope["dept_ids"]:
+        return True
+    if item.district_id and item.district_id in scope["district_ids"]:
+        return True
+    return False
+
+
+async def resolve_district_id(db: AsyncSession, assignee_id: Optional[int],
+                              assignee_prefix: Optional[str],
+                              sponsor_id: Optional[int]) -> Optional[int]:
+    """推导工作项区域：负责人区域 → 负责人邮箱前缀对应账号区域 → 主办人区域"""
+    if assignee_id:
+        row = await db.execute(select(User.district_id).where(User.id == assignee_id))
+        d = row.scalar_one_or_none()
+        if d:
+            return d
+    if assignee_prefix:
+        prefixes = [p.strip() for p in re.split(r"[,\s]+", assignee_prefix.strip()) if p.strip()]
+        if prefixes:
+            rows = await db.execute(
+                select(User.district_id).where(User.email_prefix.in_(prefixes))
+            )
+            districts = {r[0] for r in rows.all() if r[0]}
+            if len(districts) == 1:
+                return districts.pop()
+    if sponsor_id:
+        row = await db.execute(select(User.district_id).where(User.id == sponsor_id))
+        d = row.scalar_one_or_none()
+        if d:
+            return d
+    return None
+
+
 def can_change_status(user: User) -> bool:
     """检查用户是否有权限变更工作项状态
 
@@ -147,6 +242,7 @@ async def _resolve_assignee_names(db: AsyncSession, items: list) -> None:
 async def list_work_items(
     status: Optional[str] = None,
     department_id: Optional[int] = None,
+    district_id: Optional[int] = None,
     assignee_id: Optional[int] = None,
     assignee_email_prefix: Optional[str] = None,
     sponsor_id: Optional[int] = None,
@@ -154,10 +250,13 @@ async def list_work_items(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """获取工作项列表"""
+    """获取工作项列表（按当前用户的数据范围过滤，2026-11-18）"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
+        selectinload(WorkItem.district),
+        selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.department),
@@ -168,10 +267,17 @@ async def list_work_items(
         selectinload(WorkItem.status_logs).selectinload(StatusChangeLog.work_item),
     )
 
+    # 数据范围：全集团用户不加限制；其余按 部门∪区域∪本人主办/负责 过滤
+    scope_conds = scope_conditions(current_user)
+    if scope_conds is not None:
+        query = query.where(or_(*scope_conds))
+
     if status:
         query = query.where(WorkItem.status == status)
     if department_id:
         query = query.where(WorkItem.department_id == department_id)
+    if district_id:
+        query = query.where(WorkItem.district_id == district_id)
     if assignee_id:
         query = query.where(WorkItem.assignee_id == assignee_id)
     if sponsor_id:
@@ -206,6 +312,7 @@ async def list_my_work_items(
     """获取当前用户的工作项"""
     query = select(WorkItem).options(
         selectinload(WorkItem.department),
+        selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
         selectinload(WorkItem.assignee).selectinload(User.department),
@@ -309,6 +416,7 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
@@ -525,6 +633,11 @@ async def create_work_item(
 ):
     """创建工作项"""
     item = WorkItem(**data.model_dump(exclude={"sponsor_id"}))
+    # 未显式指定区域时，按负责人/主办人自动推导（补录、邮件抓取同样生效）
+    if not item.district_id:
+        item.district_id = await resolve_district_id(
+            db, item.assignee_id, item.assignee_email_prefix, item.sponsor_id or current_user.id
+        )
 
     # 设置主办人（sponsor_id）
     if data.sponsor_id and data.sponsor_id != current_user.id:
@@ -570,6 +683,7 @@ async def create_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
@@ -599,6 +713,7 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
@@ -613,6 +728,10 @@ async def update_work_item(
     item = result.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="工作项不存在")
+
+    # 数据范围校验：越权修改他人部门/区域的工作项直接拒绝（2026-11-18）
+    if not in_scope(item, current_user):
+        raise HTTPException(status_code=403, detail="无权修改该工作项（不在你的数据范围内）")
 
     update_data = data.model_dump(exclude_unset=True)
     old_status = item.status
@@ -664,6 +783,12 @@ async def update_work_item(
         else:
             item.assignee_email_prefix = None
 
+    # 负责人/主办人变更且未显式指定区域时，重算区域
+    if "district_id" not in update_data and ({"assignee_id", "assignee_email_prefix", "sponsor_id"} & set(update_data.keys())):
+        item.district_id = await resolve_district_id(
+            db, item.assignee_id, item.assignee_email_prefix, item.sponsor_id
+        )
+
     # 状态变更时同步完成信息
     _apply_completion_fields(item, old_status, current_user.id)
 
@@ -676,6 +801,7 @@ async def update_work_item(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
@@ -711,6 +837,7 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),
@@ -746,6 +873,7 @@ async def change_status(
         select(WorkItem)
         .options(
             selectinload(WorkItem.department),
+            selectinload(WorkItem.district),
         selectinload(WorkItem.sponsor).selectinload(User.district),
         selectinload(WorkItem.sponsor).selectinload(User.department),
             selectinload(WorkItem.assignee).selectinload(User.department),

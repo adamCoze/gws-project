@@ -144,6 +144,7 @@ class WorkItemBase(BaseModel):
     item_type: str = "task"
     status: str = "pending"
     department_id: Optional[int] = None
+    district_id: Optional[int] = None
     assignee_id: Optional[int] = None
     assignee_email_prefix: Optional[str] = None
     due_date: Optional[datetime] = None
@@ -160,6 +161,7 @@ class WorkItemUpdate(BaseModel):
     item_type: Optional[str] = None
     status: Optional[str] = None
     department_id: Optional[int] = None
+    district_id: Optional[int] = None
     sponsor_id: Optional[int] = None      # 主办人（所有登录用户可改，B3 维持现状）
     assignee_id: Optional[int] = None
     assignee_email_prefix: Optional[str] = None
@@ -218,6 +220,7 @@ class WorkItemOut(WorkItemBase):
     created_at: datetime
     updated_at: datetime
     department: Optional[DepartmentOut] = None
+    district: Optional[DistrictOut] = None
     assignee: Optional[UserOut] = None
     sponsor: Optional[UserOut] = None
     status_logs: List[StatusChangeLogOut] = []

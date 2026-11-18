@@ -126,6 +126,8 @@ class User(Base):
     role_level = Column(Integer, default=RoleLevel.STAFF, nullable=False)
     secondary_roles = Column(JSON, default=list, nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    # 所属区域（用于区总/部门总监的数据范围；由负责人/主办人的区域推导，也可手动指定）
+    district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
     district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
     region = Column(String(20), nullable=True)
     hashed_password = Column(String(200), nullable=False)
@@ -180,6 +182,7 @@ class WorkItem(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     department = relationship("Department", back_populates="work_items")
+    district = relationship("District", foreign_keys=[district_id])
     assignee = relationship("User", back_populates="assigned_items", foreign_keys=[assignee_id])
     sponsor = relationship("User", foreign_keys=[sponsor_id])
     completer = relationship("User", foreign_keys=[completed_by])
