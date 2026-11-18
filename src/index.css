@@ -29,10 +29,49 @@ body {
 
 /* 弹窗不超过屏幕宽度，小屏自动留边 */
 @media (max-width: 767px) {
+  /* B 档：弹窗改底部抽屉 —— 贴底、全宽、上圆角、内容可滚动 */
+  .ant-modal-root .ant-modal-wrap {
+    display: flex;
+    align-items: flex-end;
+  }
+
   .ant-modal {
-    max-width: calc(100vw - 24px);
-    margin: 12px auto;
-    top: 24px;
+    width: 100vw !important;
+    max-width: 100vw;
+    margin: 0;
+    top: auto;
+    padding-bottom: 0;
+  }
+
+  .ant-modal .ant-modal-content {
+    border-radius: 16px 16px 0 0;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding-bottom: 16px;
+  }
+
+  .ant-modal .ant-modal-header {
+    border-radius: 16px 16px 0 0;
+  }
+
+  /* 筛选区纵向堆叠：每个筛选项独占一行、宽度拉满 */
+  .m-filters .ant-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    width: 100%;
+  }
+
+  .m-filters .ant-select,
+  .m-filters .ant-input-search,
+  .m-filters .ant-input-affix-wrapper,
+  .m-filters .ant-picker,
+  .m-filters .ant-btn {
+    width: 100% !important;
+  }
+
+  .m-filters .ant-space {
+    flex-wrap: wrap;
+    width: 100%;
   }
 
   /* 抽屉式筛选/表单：内容区左右留白收窄 */
@@ -125,4 +164,4 @@ body {
   margin-bottom: 16px;
 }
 
-/* Build: 1781707800 */
+/* Build: 1781710000 */

@@ -2,6 +2,8 @@ import { formatUTCDate } from '../../utils/date';
 import React, { useState, useEffect } from 'react';
 import { Table, Tag, Tooltip } from 'antd';
 import { emailLogApi } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 import type { EmailLog } from '../../types';
 
 const resultLabels: Record<string, { label: string; color: string }> = {
@@ -11,6 +13,7 @@ const resultLabels: Record<string, { label: string; color: string }> = {
 };
 
 const EmailLogPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -102,15 +105,41 @@ const EmailLogPage: React.FC = () => {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>邮件处理日志</h2>
-      <Table
-        columns={columns}
-        dataSource={logs}
-        rowKey="id"
-        loading={loading}
-        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
-        scroll={{ x: 1300 }}
-      />
+      <h2 style={{ marginBottom: 16, fontSize: isMobile ? 18 : undefined }}>邮件处理日志</h2>
+      {isMobile ? (
+        <MobileCardList
+          items={logs}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无邮件处理日志"
+          pageSize={20}
+          renderCard={(r: EmailLog) => {
+            const info = resultLabels[r.process_result] || { label: r.process_result, color: 'default' };
+            return (
+              <>
+                <div className="m-card-title">{r.subject || '(无主题)'}</div>
+                <div className="m-card-meta">
+                  <span>#{r.id}</span>
+                  <Tag color={info.color} style={{ margin: 0 }}>{info.label}</Tag>
+                  <span>发件人：{r.from_addr || '-'}</span>
+                  <span>接收：{formatUTCDate(r.received_at, 'YYYY-MM-DD HH:mm')}</span>
+                  <span>关联工作项：{r.work_item_id ? `#${r.work_item_id}` : '-'}{r.retry_count ? ` · 重试 ${r.retry_count} 次` : ''}</span>
+                  {r.error_message ? <span style={{ color: '#ff4d4f' }}>错误：{r.error_message}</span> : null}
+                </div>
+              </>
+            );
+          }}
+        />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={logs}
+          rowKey="id"
+          loading={loading}
+          pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
+          scroll={{ x: 1300 }}
+        />
+      )}
     </div>
   );
 };

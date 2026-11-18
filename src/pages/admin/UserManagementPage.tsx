@@ -2,10 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { userApi, departmentApi, districtApi } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 import type { User, Department, District } from '../../types';
 import { ROLE_LABELS, ROLE_LEVEL_LABELS, ROLE_LEVEL_OPTIONS, ROLE_LEVEL } from '../../types';
 
 const UserManagementPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [districts, setDistricts] = useState<District[]>([]);
@@ -343,20 +346,58 @@ const UserManagementPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <h2>用户管理</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : undefined }}>用户管理</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
           新建用户
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={users}
-        rowKey="id"
-        loading={loading}
-        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          items={users}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无用户"
+          renderCard={(record: User) => (
+            <>
+              <div className="m-card-title">{record.real_name || record.username}</div>
+              <div className="m-card-meta">
+                <Tag color={(record.role_level || 0) >= 8 ? 'red' : (record.role_level || 0) >= 6 ? 'orange' : 'blue'} style={{ margin: 0 }}>
+                  {ROLE_LEVEL_LABELS[record.role_level] || record.role_level}
+                </Tag>
+                <Tag color={record.is_active ? 'green' : 'default'} style={{ margin: 0 }}>{record.is_active ? '启用' : '禁用'}</Tag>
+                <span>账号：{record.username}</span>
+                <span>{record.email}</span>
+                <span>{getDeptName(record.department_id)} · {getDistrictName(record.district_id)}</span>
+                {record.secondary_roles && record.secondary_roles.length > 0 && (
+                  <span>
+                    副角色：
+                    {record.secondary_roles.map((sr: any, i: number) => {
+                      const rl = typeof sr === 'number' ? sr : sr.role_level;
+                      return `${ROLE_LEVEL_LABELS[rl] || rl}${i < record.secondary_roles!.length - 1 ? '、' : ''}`;
+                    }).join('')}
+                  </span>
+                )}
+              </div>
+              <div className="m-card-actions">
+                <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
+                <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={users}
+          rowKey="id"
+          loading={loading}
+          pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
+        />
+      )}
 
       <Modal
         title={editingUser ? '编辑用户' : '新建用户'}

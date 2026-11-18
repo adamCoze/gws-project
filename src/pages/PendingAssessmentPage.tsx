@@ -27,6 +27,7 @@ const PendingAssessmentPage: React.FC = () => {
   const [sponsorFilter, setSponsorFilter] = useState<number | undefined>(undefined);
   const [districtFilter, setDistrictFilter] = useState<number | undefined>(undefined);
   const [districts, setDistricts] = useState<{ id: number; name: string }[]>([]);
+  const isMobile = useIsMobile();
   const [users, setUsers] = useState<{ id: number; real_name: string; username: string }[]>([]);
   const [editTarget, setEditTarget] = useState<WorkItem | null>(null);
 
@@ -236,12 +237,12 @@ const PendingAssessmentPage: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Space>
+      <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} style={isMobile ? { width: '100%' } : undefined}>
           <Input.Search
             placeholder="搜索工作项标题"
             allowClear
-            style={{ width: 280 }}
+            style={{ width: isMobile ? '100%' : 280 }}
             onSearch={(kw) => { setKeyword(kw); setPage(1); fetchData(1, pageSize, kw); }}
           />
           <Select
@@ -249,7 +250,7 @@ const PendingAssessmentPage: React.FC = () => {
             showSearch
             optionFilterProp="label"
             placeholder="按主办人筛选"
-            style={{ width: 180 }}
+            style={{ width: isMobile ? '100%' : 180 }}
             value={sponsorFilter}
             onChange={(v) => { setSponsorFilter(v); setPage(1); fetchData(1, pageSize, keyword, v); }}
             options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
@@ -257,30 +258,58 @@ const PendingAssessmentPage: React.FC = () => {
           <Select
             allowClear
             placeholder="按区域筛选"
-            style={{ width: 130 }}
+            style={{ width: isMobile ? '100%' : 130 }}
             value={districtFilter}
             onChange={(v) => { setDistrictFilter(v); setPage(1); fetchData(1, pageSize, keyword, sponsorFilter, v); }}
             options={districts.map((d) => ({ value: d.id, label: d.name }))}
           />
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
+          <Button style={isMobile ? { width: '100%' } : undefined} icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
-        <Text type="secondary">已完成且待处理的工作项，可发起考核或标记为非考核项</Text>
+        {!isMobile && <Text type="secondary">已完成且待处理的工作项，可发起考核或标记为非考核项</Text>}
       </Space>
 
-      <Table
-        rowKey="work_item_id"
-        columns={columns}
-        dataSource={items}
-        loading={loading}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); },
-        }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          items={items}
+          rowKey={(r) => r.work_item_id}
+          loading={loading}
+          emptyText="暂无待考核工作项"
+          serverSide
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); }}
+          renderCard={(r: PendingAssessmentItem) => (
+            <>
+              <div className="m-card-title">{r.work_item_title || `工作项 #${r.work_item_id}`}</div>
+              <div className="m-card-meta">
+                <span>{r.department_name || '-'} · {r.district_name || '-'}</span>
+                <span>主办人：{r.sponsor_name || '无主办人'}</span>
+                {r.completed_at && <span>完成：{new Date(r.completed_at).toLocaleString('zh-CN', { hour12: false })}</span>}
+              </div>
+              <div className="m-card-actions">
+                <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => handleInitiateClick(r)}>发起考核</Button>
+                <Button size="small" icon={<StopOutlined />} onClick={() => { setMarkTarget(r); setMarkRemark(''); }}>标记非考核</Button>
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table
+          rowKey="work_item_id"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); },
+          }}
+        />
+      )}
 
       {/* 发起考核确认弹窗（含跳过规则提示） */}
       <Modal

@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm, InputNumber } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { districtApi } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 import type { District } from '../../types';
 
 const DistrictManagementPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [districts, setDistricts] = useState<District[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -132,20 +135,45 @@ const DistrictManagementPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <h2>区域管理</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : undefined }}>区域管理</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
           新建区域
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={districts}
-        rowKey="id"
-        loading={loading}
-        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          items={districts}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无区域"
+          renderCard={(record: District) => (
+            <>
+              <div className="m-card-title">{record.name}</div>
+              <div className="m-card-meta">
+                <Tag color={record.is_active ? 'green' : 'default'} style={{ margin: 0 }}>{record.is_active ? '启用' : '禁用'}</Tag>
+                <span>排序：{record.sort_order ?? '-'}</span>
+                {record.created_at && <span>{new Date(record.created_at).toLocaleString('zh-CN')}</span>}
+              </div>
+              <div className="m-card-actions">
+                <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
+                <Popconfirm title="确认删除该区域？" onConfirm={() => handleDelete(record.id)}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={districts}
+          rowKey="id"
+          loading={loading}
+          pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
+        />
+      )}
 
       <Modal
         title={editingDistrict ? '编辑区域' : '新建区域'}

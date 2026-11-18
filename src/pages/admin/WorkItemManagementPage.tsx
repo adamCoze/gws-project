@@ -4,6 +4,8 @@ import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, notific
 import { PlusOutlined, EditOutlined, DeleteOutlined, SwapOutlined, FilterOutlined, CaretUpOutlined, CaretDownOutlined, LinkOutlined, LoadingOutlined } from '@ant-design/icons';
 import { workItemApi, departmentApi, districtApi, userApi } from '../../services/api';
 import { useAuth } from '../../components/AuthProvider';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 import type { WorkItem, Department, District, WorkItemStatus as WorkItemStatusType, RoleType } from '../../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS, ROLE_LEVEL, TYPE_LABELS, TYPE_COLORS } from '../../types';
 
@@ -49,6 +51,7 @@ const WorkItemManagementPage: React.FC = () => {
   const [newStatus, setNewStatus] = useState<WorkItemStatusType>('pending');
   const [remark, setRemark] = useState('');
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [emailLoadingId, setEmailLoadingId] = useState<number | null>(null);
   const [emailLinkStatus, setEmailLinkStatus] = useState<Record<number, boolean>>({});
 
@@ -505,8 +508,8 @@ const WorkItemManagementPage: React.FC = () => {
       </div>
 
       {/* Filter & Sort Bar */}
-      <Card size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={16} align="middle">
+      <Card size="small" style={{ marginBottom: 16 }} className="m-filters">
+        <Row gutter={[8, 8]} align="middle">
           <Col>
             <Space>
               <FilterOutlined style={{ color: '#999' }} />
@@ -588,7 +591,45 @@ const WorkItemManagementPage: React.FC = () => {
         </Row>
       </Card>
 
-      <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1300 }} />
+      {isMobile ? (
+        <MobileCardList
+          items={displayItems}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无工作项"
+          renderCard={(record: WorkItem) => {
+            const effStatus = getEffectiveStatus(record);
+            return (
+              <>
+                <div className="m-card-title" onClick={() => openModal(record)}>{record.title}</div>
+                <div className="m-card-meta">
+                  <Tag color={TYPE_COLORS[record.item_type] || 'blue'} style={{ margin: 0 }}>{TYPE_LABELS[record.item_type] || record.item_type}</Tag>
+                  <Tag color={STATUS_COLORS[effStatus]} style={{ margin: 0 }}>{STATUS_LABELS[effStatus]}</Tag>
+                  {record.is_confidential && <Tag color="red" style={{ margin: 0 }}>机密</Tag>}
+                  <span>{record.department?.name || '-'} · {record.district?.name || '未分配'}</span>
+                  <span>负责人：{getAssigneeName(record)}</span>
+                  <span>主办人：{record.sponsor?.real_name || record.sponsor?.username || '-'}</span>
+                  <span>截止：{record.due_date ? formatUTCDate(record.due_date) : '-'}</span>
+                </div>
+                <div className="m-card-actions">
+                  <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
+                  {canChange && <Button size="small" icon={<SwapOutlined />} onClick={() => openStatusModal(record)}>状态</Button>}
+                  {record.email_subject && (
+                    <Button size="small" icon={emailLoadingId === record.id ? <LoadingOutlined /> : <LinkOutlined />} onClick={() => handleEmailLink(record)}>原邮件</Button>
+                  )}
+                  {canDelete && (
+                    <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+                      <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                    </Popconfirm>
+                  )}
+                </div>
+              </>
+            );
+          }}
+        />
+      ) : (
+        <Table columns={columns} dataSource={displayItems} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} scroll={{ x: 1300 }} />
+      )}
 
       <Modal
         title={editingItem ? '编辑工作项' : '新建工作项'}

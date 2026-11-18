@@ -6,10 +6,13 @@ import { emailConfigApi } from '../../services/api';
 import type { EmailConfig } from '../../types';
 import { formatUTCDate } from '../../utils/date';
 import dayjs from 'dayjs';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 
 const { Title } = Typography;
 
 const EmailConfigPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [configs, setConfigs] = useState<EmailConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -59,11 +62,38 @@ const EmailConfigPage: React.FC = () => {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={4} style={{ margin: 0 }}>邮箱配置</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <Title level={isMobile ? 5 : 4} style={{ margin: 0 }}>邮箱配置</Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); form.resetFields(); setModalOpen(true); }}>新增配置</Button>
       </div>
-      <Table columns={columns} dataSource={configs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [10, 20, 50], defaultPageSize: 10 }} />
+      {isMobile ? (
+        <MobileCardList
+          items={configs}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无邮箱配置"
+          pageSize={10}
+          renderCard={(r: EmailConfig) => (
+            <>
+              <div className="m-card-title" style={{ fontSize: 14 }}>{r.email_address}</div>
+              <div className="m-card-meta">
+                <Tag color={r.is_active ? 'green' : 'default'} style={{ margin: 0 }}>{r.is_active ? '启用' : '停用'}</Tag>
+                <span>IMAP：{r.imap_host}:{r.imap_port}</span>
+                <span>用户名：{r.username}</span>
+                <span>上次检查：{r.last_check_at ? formatUTCDate(r.last_check_at, 'YYYY-MM-DD HH:mm') : '-'}</span>
+              </div>
+              <div className="m-card-actions">
+                <Button size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); form.setFieldsValue(r); setModalOpen(true); }}>编辑</Button>
+                <Popconfirm title="确认删除?" onConfirm={() => handleDelete(r.id)}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table columns={columns} dataSource={configs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [10, 20, 50], defaultPageSize: 10 }} />
+      )}
       <Modal title={editing ? '编辑邮箱配置' : '新增邮箱配置'} open={modalOpen} onOk={handleSave} onCancel={() => setModalOpen(false)} destroyOnClose width={500}>
         <Form form={form} layout="vertical">
           <Form.Item name="email_address" label="邮箱地址" rules={[{ required: true, type: 'email' }]}><Input /></Form.Item>

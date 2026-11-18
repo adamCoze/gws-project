@@ -6,11 +6,13 @@ import type { StatusChangeLog } from '../../types';
 import { STATUS_LABELS, STATUS_COLORS } from '../../types';
 import type { WorkItemStatus } from '../../types';
 import { formatUTCDate } from '../../utils/date';
-import dayjs from 'dayjs';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 
 const { Title } = Typography;
 
 const StatusLogPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [logs, setLogs] = useState<StatusChangeLog[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -38,8 +40,33 @@ const StatusLogPage: React.FC = () => {
 
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-      <Title level={4} style={{ margin: 0 }}>状态变更日志</Title>
-      <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} />
+      <Title level={isMobile ? 5 : 4} style={{ margin: 0 }}>状态变更日志</Title>
+      {isMobile ? (
+        <MobileCardList
+          items={logs}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无状态变更日志"
+          pageSize={20}
+          renderCard={(r: StatusChangeLog) => (
+            <>
+              <div className="m-card-title">{r.work_item_title || `工作项 #${r.work_item_id}`}</div>
+              <div className="m-card-meta">
+                <span>
+                  <Tag color={STATUS_COLORS[r.old_status as WorkItemStatus]} style={{ margin: 0 }}>{STATUS_LABELS[r.old_status as WorkItemStatus]}</Tag>
+                  {' → '}
+                  <Tag color={STATUS_COLORS[r.new_status as WorkItemStatus]} style={{ margin: 0 }}>{STATUS_LABELS[r.new_status as WorkItemStatus]}</Tag>
+                </span>
+                <span>操作人：{r.changed_by || '-'}</span>
+                <span>{formatUTCDate(r.created_at, 'YYYY-MM-DD HH:mm')}</span>
+                {r.remark ? <span>备注：{r.remark}</span> : null}
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }} />
+      )}
     </Space>
   );
 };

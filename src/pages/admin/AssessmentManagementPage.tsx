@@ -5,10 +5,15 @@ import { assessmentApi, districtApi, departmentApi, userApi } from '../../servic
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../../types';
 import type { District, Department } from '../../types';
 import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 
 const { RangePicker } = DatePicker;
 
 const AssessmentManagementPage: React.FC = () => {
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
   const [items, setItems] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -376,9 +381,9 @@ const AssessmentManagementPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0 }}>考核管理</h2>
-        <Space>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : undefined }}>考核管理</h2>
+        <Space wrap>
           <Button icon={<BarChartOutlined />} onClick={openStats}>
             按得分人统计
           </Button>
@@ -389,8 +394,8 @@ const AssessmentManagementPage: React.FC = () => {
       </div>
 
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Row gutter={16}>
-          <Col span={6}>
+        <Row gutter={[12, 12]}>
+          <Col xs={24} sm={12} md={6}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>月份：</span>
               <Select
@@ -403,7 +408,7 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={6}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>状态：</span>
               <Select
@@ -419,7 +424,7 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={6}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>区域：</span>
               <Select
@@ -432,7 +437,7 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} md={6}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>部门：</span>
               <Select
@@ -446,8 +451,8 @@ const AssessmentManagementPage: React.FC = () => {
             </div>
           </Col>
         </Row>
-        <Row gutter={16} style={{ marginTop: 12 }}>
-          <Col span={8}>
+        <Row gutter={[12, 12]} style={{ marginTop: 12 }}>
+          <Col xs={24} md={8}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>关键词：</span>
               <Input
@@ -459,7 +464,7 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={8}>
+          <Col xs={24} md={8}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ whiteSpace: 'nowrap' }}>得分人：</span>
               <Select
@@ -474,7 +479,7 @@ const AssessmentManagementPage: React.FC = () => {
               />
             </div>
           </Col>
-          <Col span={8} style={{ textAlign: 'right' }}>
+          <Col xs={24} md={8} style={{ textAlign: isMobile ? 'left' : 'right' }}>
             <Space>
               <Button onClick={handleReset}>重置</Button>
               <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>
@@ -485,6 +490,48 @@ const AssessmentManagementPage: React.FC = () => {
         </Row>
       </Card>
 
+      {isMobile ? (
+        <MobileCardList
+          items={items}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无考核记录"
+          serverSide
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); }}
+          renderCard={(r: any) => {
+            const groupScore = (r.scores || []).find((x: any) => x.level === 'group');
+            const parts = groupScore?.participants || [];
+            return (
+              <>
+                <div className="m-card-title">{r.title || r.work_item_no}</div>
+                <div className="m-card-meta">
+                  <Tag color={ASSESSMENT_STATUS_COLORS[r.status] || 'default'} style={{ margin: 0 }}>
+                    {ASSESSMENT_STATUS_LABELS[r.status] || r.status}
+                  </Tag>
+                  <span>{r.department_name || '-'} · {r.district_name || '-'}</span>
+                  <span>主办人：{r.sponsor_name || '-'}</span>
+                  {r.initiated_at && <span>{dayjs(r.initiated_at).format('YYYY-MM-DD HH:mm')}</span>}
+                  <span>区总 {getScoreByLevel(r, 'district')} · 规管 {getScoreByLevel(r, 'regulator')} · 集团 {getScoreByLevel(r, 'group')}</span>
+                  <span>最终分：<b style={{ color: '#1677ff' }}>{getFinalScore(r)}</b></span>
+                  {parts.length > 0 ? (
+                    <span>
+                      参与人：{parts.map((p: any) => `${p.user_name || '用户' + p.user_id} ${p.score}分`).join('，')}
+                    </span>
+                  ) : (
+                    <span>参与人：{r.sponsor_name || '-'}（未分配）</span>
+                  )}
+                </div>
+                <div className="m-card-actions">
+                  <Button size="small" onClick={() => navigate(`/assessment/${r.id}`)}>查看详情</Button>
+                </div>
+              </>
+            );
+          }}
+        />
+      ) : (
       <Table
         rowKey="id"
         loading={loading}
@@ -504,6 +551,7 @@ const AssessmentManagementPage: React.FC = () => {
         }}
         scroll={{ x: 1200 }}
       />
+      )}
 
       <Modal
         title={`按得分人统计${month ? `（${month}）` : '（全部月份）'}`}

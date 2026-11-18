@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Select, Tag, Space, message, Popconfirm } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApartmentOutlined } from '@ant-design/icons';
 import { departmentApi, districtApi } from '../../services/api';
+import { useIsMobile } from '../../hooks/useIsMobile';
+import MobileCardList from '../../components/MobileCardList';
 import type { Department, District } from '../../types';
 
 const DepartmentManagementPage: React.FC = () => {
+  const isMobile = useIsMobile();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [districts, setDistricts] = useState<District[]>([]);
   const [loading, setLoading] = useState(false);
@@ -144,20 +147,45 @@ const DepartmentManagementPage: React.FC = () => {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-        <h2>部门管理</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : undefined }}>部门管理</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openModal()}>
           新建部门
         </Button>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={departments}
-        rowKey="id"
-        loading={loading}
-        pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
-      />
+      {isMobile ? (
+        <MobileCardList
+          items={departments}
+          rowKey={(r) => r.id}
+          loading={loading}
+          emptyText="暂无部门"
+          renderCard={(record: Department) => (
+            <>
+              <div className="m-card-title">{record.name}</div>
+              <div className="m-card-meta">
+                <span>编码：{record.code || '-'}</span>
+                <span>区域：{getDistrictName(record.district_id)}</span>
+                {record.created_at && <span>{new Date(record.created_at).toLocaleString('zh-CN')}</span>}
+              </div>
+              <div className="m-card-actions">
+                <Button size="small" icon={<EditOutlined />} onClick={() => openModal(record)}>编辑</Button>
+                <Popconfirm title="确认删除该部门？" onConfirm={() => handleDelete(record.id)}>
+                  <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </div>
+            </>
+          )}
+        />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={departments}
+          rowKey="id"
+          loading={loading}
+          pagination={{ showTotal: (t) => `共 ${t} 条`, showSizeChanger: true, pageSizeOptions: [20, 50, 100], defaultPageSize: 20 }}
+        />
+      )}
 
       <Modal
         title={editingDept ? '编辑部门' : '新建部门'}
