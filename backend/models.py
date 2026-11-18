@@ -128,7 +128,6 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
     # 所属区域（用于区总/部门总监的数据范围；由负责人/主办人的区域推导，也可手动指定）
     district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
-    district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
     region = Column(String(20), nullable=True)
     hashed_password = Column(String(200), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -158,6 +157,7 @@ class WorkItem(Base):
     item_type = Column(String(10), default="task", nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    district_id = Column(Integer, ForeignKey("districts.id"), nullable=True)
     assignee_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     assignee_email_prefix = Column(String(50), nullable=True)
     sponsor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
