@@ -582,12 +582,34 @@ async def _process_email(
                         if user:
                             assignee_id = user.id
 
+                # 自动带出区域：负责人 → 负责人邮箱前缀 → 发件人（2026-11-18）
+                district_id = None
+                if assignee_id:
+                    _r = await db.execute(select(User.district_id).where(User.id == assignee_id))
+                    district_id = _r.scalar_one_or_none()
+                if not district_id and assignee_prefix:
+                    _prefixes = [x.strip() for x in str(assignee_prefix).replace(' ', ',').split(',') if x.strip()]
+                    if _prefixes:
+                        _r = await db.execute(select(User.district_id).where(User.email_prefix.in_(_prefixes)))
+                        _ds = {row[0] for row in _r.all() if row[0]}
+                        if len(_ds) == 1:
+                            district_id = _ds.pop()
+                if not district_id:
+                    try:
+                        _sender_prefix = extract_sender_prefix(from_addr)
+                    except Exception:
+                        _sender_prefix = None
+                    if _sender_prefix:
+                        _r = await db.execute(select(User.district_id).where(User.email_prefix == _sender_prefix))
+                        district_id = _r.scalar_one_or_none()
+
                 item = WorkItem(
                     title=analysis.get("title", subject[:100]),
                     content=analysis.get("summary", body[:500]),
                     item_type=item_type,
                     status=new_status,
                     department_id=dept.id,
+                    district_id=district_id,
                     assignee_id=assignee_id,
                     assignee_email_prefix=assignee_prefix,
                     due_date=due_date,
