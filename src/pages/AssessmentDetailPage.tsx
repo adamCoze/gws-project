@@ -12,6 +12,7 @@ import {
 import type { AssessmentAttachment, AssessmentDetail } from '../types';
 import { assessmentApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
+import { useIsMobile } from '../hooks/useIsMobile';
 import AiOpinionCard, { AiNotConfiguredCard } from '../components/assessment/AiOpinionCard';
 import { parseRulingResult } from '../components/assessment/RulingModal';
 
@@ -77,6 +78,7 @@ const AttachmentList: React.FC<{ attachments?: AssessmentAttachment[] }> = ({ at
 const AssessmentDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const { user } = useAuth();
   const userLevel = user?.role_level || ROLE_LEVELS[user?.role as string] || 0;
   const canViewAi = userLevel >= ROLE_LEVELS.regulator;
@@ -198,9 +200,9 @@ const AssessmentDetailPage: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }} wrap>
+      <Space direction={isMobile ? 'vertical' : 'horizontal'} align={isMobile ? 'start' : 'center'} style={{ marginBottom: isMobile ? 12 : 16, width: '100%' }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)}>返回</Button>
-        <Title level={4} style={{ margin: 0 }}>{detail.work_item_title || `考核 #${detail.id}`}</Title>
+        <Title level={isMobile ? 5 : 4} style={{ margin: 0, whiteSpace: 'normal', lineHeight: 1.4 }}>{detail.work_item_title || `考核 #${detail.id}`}</Title>
         <Tag color={ASSESSMENT_STATUS_COLORS[detail.status]} style={{ fontSize: 14 }}>
           {ASSESSMENT_STATUS_LABELS[detail.status] || detail.status}
         </Tag>
@@ -246,7 +248,7 @@ const AssessmentDetailPage: React.FC = () => {
       ))}
 
       <Card title="基本信息" size="small" style={{ marginBottom: 16 }}>
-        <Descriptions column={3} size="small">
+        <Descriptions column={isMobile ? 1 : 3} size="small" layout={isMobile ? 'horizontal' : 'horizontal'}>
           <Descriptions.Item label="部门">{detail.department_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="区域">{detail.district_name || '-'}</Descriptions.Item>
           <Descriptions.Item label="主办人">{detail.sponsor_name || '无主办人（部门代管）'}</Descriptions.Item>

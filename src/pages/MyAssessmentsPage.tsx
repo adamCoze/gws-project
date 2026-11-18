@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Typography, message, Modal, Form } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Typography, message, Modal, Form, Pagination, Empty, Spin } from 'antd';
 import { ReloadOutlined, UploadOutlined, ExclamationCircleOutlined, CheckOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS } from '../types';
 import type { AssessmentListItem, SupplementRequest, ErrorBonusItem } from '../types';
 import { assessmentApi } from '../services/api';
+import { useIsMobile } from '../hooks/useIsMobile';
 import SupplementSubmitModal from '../components/assessment/SupplementSubmitModal';
 
 const { Text, Paragraph } = Typography;
@@ -16,6 +17,7 @@ const { Text, Paragraph } = Typography;
  */
 const MyAssessmentsPage: React.FC = () => {
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
   const [items, setItems] = useState<AssessmentListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -215,18 +217,18 @@ const MyAssessmentsPage: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
-        <Space>
+      <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ marginBottom: isMobile ? 8 : 16, width: '100%', justifyContent: 'space-between' }}>
+        <Space wrap size={isMobile ? 8 : 'middle'}>
           <Input.Search
             placeholder="搜索工作项标题"
             allowClear
-            style={{ width: 260 }}
+            style={{ width: isMobile ? '100%' : 260 }}
             onSearch={(kw) => { setKeyword(kw); setPage(1); fetchData(1, pageSize, kw, statusFilter); }}
           />
           <Select
             placeholder="状态筛选"
             allowClear
-            style={{ width: 180 }}
+            style={{ width: isMobile ? 'calc(50% - 4px)' : 180 }}
             value={statusFilter}
             onChange={(v) => { setStatusFilter(v); setPage(1); fetchData(1, pageSize, keyword, v, monthFilter); }}
             options={Object.entries(ASSESSMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
@@ -234,7 +236,7 @@ const MyAssessmentsPage: React.FC = () => {
           <Select
             placeholder="月份筛选（按发起时间）"
             allowClear
-            style={{ width: 190 }}
+            style={{ width: isMobile ? 'calc(50% - 4px)' : 190 }}
             value={monthFilter}
             onChange={(v) => { setMonthFilter(v); setPage(1); fetchData(1, pageSize, keyword, statusFilter, v); }}
             options={monthOptions}
@@ -247,23 +249,100 @@ const MyAssessmentsPage: React.FC = () => {
           )}
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
-        <Text type="secondary">我主办或我参与的考核记录</Text>
+        {!isMobile && <Text type="secondary">我主办或我参与的考核记录</Text>}
       </Space>
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={items}
-        loading={loading}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: (p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); },
-        }}
-      />
+      {isMobile ? (
+        loading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
+        ) : items.length === 0 ? (
+          <Empty description="暂无考核记录" style={{ padding: 32 }} />
+        ) : (
+          <div>
+            {items.map((it) => (
+              <div key={it.id} className="m-card" onClick={() => navigate(`/assessment/${it.id}`)}>
+                <div className="m-card-title">{it.work_item_title || `考核 #${it.id}`}</div>
+                <div className="m-card-meta">
+                  <Tag color={ASSESSMENT_STATUS_COLORS[it.status]} style={{ margin: 0 }}>
+                    {ASSESSMENT_STATUS_LABELS[it.status] || it.status}
+                  </Tag>
+                  {it.is_sponsor ? <Tag color="blue" style={{ margin: 0 }}>主办</Tag> : <Tag color="green" style={{ margin: 0 }}>参与</Tag>}
+                  {it.no_objection_confirmed && <Tag color="success" style={{ margin: 0 }}>已确认无异议</Tag>}
+                  <span>{it.department_name || '-'} · {it.district_name || '-'}</span>
+                  <span>
+                    总分：
+                    {it.final_score !== null && it.final_score !== undefined ? it.final_score : '-'}
+                    ｜我的得分：
+                    <span style={{ color: '#1677ff', fontWeight: 600 }}>
+                      {it.my_score !== null && it.my_score !== undefined ? it.my_score : '-'}
+                    </span>
+                  </span>
+                  {it.initiated_at && <span>{new Date(it.initiated_at).toLocaleString('zh-CN', { hour12: false })}</span>}
+                </div>
+                <div className="m-card-actions" onClick={(e) => e.stopPropagation()}>
+                  <Button size="small" onClick={() => navigate(`/assessment/${it.id}`)}>详情</Button>
+                  {it.status === 'pending_supplement' && (
+                    <Button type="primary" size="small" icon={<UploadOutlined />} onClick={() => handleOpenSupplement(it)}>
+                      补充凭证
+                    </Button>
+                  )}
+                  {it.can_appeal && !it.no_objection_confirmed && (
+                    <Button
+                      type="primary"
+                      danger
+                      size="small"
+                      icon={<ExclamationCircleOutlined />}
+                      onClick={() => {
+                        setAppealTarget(it);
+                        setAppealReason('');
+                        form.resetFields();
+                        setAppealOpen(true);
+                      }}
+                    >
+                      异议
+                    </Button>
+                  )}
+                  {it.can_appeal && !it.no_objection_confirmed && (
+                    <Button
+                      size="small"
+                      icon={<CheckOutlined />}
+                      onClick={() => handleNoObjection(it)}
+                      loading={noObjectionLoadingId === it.id}
+                    >
+                      无异议
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+            {total > pageSize && (
+              <Pagination
+                style={{ textAlign: 'center', marginTop: 12 }}
+                simple
+                current={page}
+                pageSize={pageSize}
+                total={total}
+                onChange={(p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); }}
+              />
+            )}
+          </div>
+        )
+      ) : (
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); },
+          }}
+        />
+      )}
 
       <SupplementSubmitModal
         open={!!supplementRequest}

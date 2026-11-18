@@ -17,4 +17,106 @@ body {
 #root {
   min-height: 100vh;
 }
+
+/* ===== 移动端基础适配（2026-11-18 折中方案 A 档） ===== */
+
+/* 宽表格只在自身容器内横向滚动，不撑破页面 */
+.ant-table-content,
+.ant-table-body {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 弹窗不超过屏幕宽度，小屏自动留边 */
+@media (max-width: 767px) {
+  .ant-modal {
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+    top: 24px;
+  }
+
+  /* 抽屉式筛选/表单：内容区左右留白收窄 */
+  .ant-drawer-body {
+    padding: 16px;
+  }
+
+  /* 表格单元格更紧凑，避免一屏只剩两列 */
+  .ant-table-wrapper .ant-table-tbody > tr > td,
+  .ant-table-wrapper .ant-table-thead > tr > th {
+    padding: 10px 8px;
+  }
+
+  /* 分页器在小屏允许换行 */
+  .ant-pagination {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* 提示信息在窄屏自动换行，不挤压标题 */
+  .ant-message-notice-content {
+    max-width: calc(100vw - 32px);
+  }
+}
+
+/* 卡片式列表通用样式（移动端高频页使用） */
+.m-card {
+  border: 1px solid #f0f0f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.m-card:active {
+  background: #fafafa;
+}
+
+.m-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: rgba(0, 0, 0, 0.88);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.m-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.55);
+  line-height: 1.5;
+}
+
+.m-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.m-card-actions > * {
+  flex: 1;
+}
+
+/* 移动端触控友好：按钮最小高度 36px */
+@media (max-width: 767px) {
+  .m-card-actions .ant-btn {
+    height: 36px;
+  }
+}
+
+/* 移动端页面标题行：标题与操作按钮上下堆叠 */
+.m-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
 /* Build: 1781707700 */

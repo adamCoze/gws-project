@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 dayjs.extend(utc);
 import { formatUTCDate } from '../utils/date';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -51,6 +52,7 @@ const DashboardPage: React.FC = () => {
   const [remark, setRemark] = useState('');
 
   const { user } = useAuth();
+  const isMobile = useIsMobile();
 
   const canChange = useMemo(() => {
     if (!user) return false;
@@ -314,12 +316,12 @@ const DashboardPage: React.FC = () => {
   return (
     <Space direction="vertical" size="large" style={{ width: '100%' }}>
       <Title level={4}>我的工作 - {user?.real_name || user?.username}</Title>
-      <Row gutter={16}>
-        <Col span={5}><Card><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col span={5}><Card><Statistic title="已逾时" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
-        <Col span={4}><Card><Statistic title="不再进行" value={stats.cancelled} valueStyle={{ color: '#999' }} prefix={<StopOutlined />} /></Card></Col>
+      <Row gutter={[12, 12]}>
+        <Col xs={8} sm={8} md={5}><Card size={isMobile ? 'small' : 'default'}><Statistic title="全部" value={stats.total} prefix={<SyncOutlined />} /></Card></Col>
+        <Col xs={8} sm={8} md={5}><Card size={isMobile ? 'small' : 'default'}><Statistic title="待处理" value={stats.pending} valueStyle={{ color: '#faad14' }} prefix={<ClockCircleOutlined />} /></Card></Col>
+        <Col xs={8} sm={8} md={5}><Card size={isMobile ? 'small' : 'default'}><Statistic title="已完成" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} /></Card></Col>
+        <Col xs={12} sm={8} md={5}><Card size={isMobile ? 'small' : 'default'}><Statistic title="已逾时" value={stats.overdue} valueStyle={{ color: '#ff4d4f' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>
+        <Col xs={12} sm={8} md={4}><Card size={isMobile ? 'small' : 'default'}><Statistic title="不再进行" value={stats.cancelled} valueStyle={{ color: '#999' }} prefix={<StopOutlined />} /></Card></Col>
       </Row>
 
       <Collapse
@@ -336,13 +338,52 @@ const DashboardPage: React.FC = () => {
               </Space>
             }
           >
-            <Table
-              columns={columns}
-              dataSource={group.items}
-              rowKey="id"
-              pagination={false}
-              size="small"
-            />
+            {isMobile ? (
+              <div>
+                {group.items.map((item) => (
+                  <div key={item.id} className="m-card">
+                    <div className="m-card-title" onClick={() => openEditModal(item)}>{item.title}</div>
+                    <div className="m-card-meta">
+                      <Tag color={TYPE_COLORS[item.item_type] || 'blue'} style={{ margin: 0 }}>
+                        {TYPE_LABELS[item.item_type] || item.item_type}
+                      </Tag>
+                      <Tag
+                        color={STATUS_COLORS[item.status]}
+                        style={{ margin: 0, cursor: canChange ? 'pointer' : 'default' }}
+                        onClick={() => openStatusModal(item)}
+                      >
+                        {STATUS_LABELS[item.status]}
+                      </Tag>
+                      {item.is_confidential && <Tag color="red" style={{ margin: 0 }}>机密</Tag>}
+                      <span>主办人：{item.sponsor?.real_name || item.sponsor?.username || '-'}</span>
+                      <span>截止：{item.due_date ? formatUTCDate(item.due_date) : '-'}</span>
+                    </div>
+                    <div className="m-card-actions">
+                      <Button size="small" onClick={() => openEditModal(item)}>查看/编辑</Button>
+                      <Button
+                        size="small"
+                        type="link"
+                        disabled={!item.email_subject}
+                        loading={emailLoadingId === item.id}
+                        icon={<LinkOutlined />}
+                        onClick={() => handleEmailLink(item)}
+                      >
+                        原邮件
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {group.items.length === 0 && <div className="m-card" style={{ textAlign: 'center', color: '#999' }}>暂无工作项</div>}
+              </div>
+            ) : (
+              <Table
+                columns={columns}
+                dataSource={group.items}
+                rowKey="id"
+                pagination={false}
+                size="small"
+              />
+            )}
           </Collapse.Panel>
         ))}
       </Collapse>

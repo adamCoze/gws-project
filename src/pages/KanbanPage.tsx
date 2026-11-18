@@ -5,6 +5,7 @@ import { kanbanApi, workItemApi, departmentApi, userApi } from '../services/api'
 import { useAuth } from '../components/AuthProvider';
 import type { WorkItem, Department, WorkItemStatus as WorkItemStatusType, RoleType } from '../types';
 import { STATUS_LABELS, STATUS_COLORS, ROLE_LEVELS } from '../types';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const { TextArea } = Input;
 
@@ -40,6 +41,7 @@ function canChangeStatus(role: string, departmentId?: number | null): boolean {
 
 const KanbanPage: React.FC = () => {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const [kanbanData, setKanbanData] = useState<KanbanDeptData[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [users, setUsers] = useState<UserBrief[]>([]);
@@ -207,7 +209,7 @@ const KanbanPage: React.FC = () => {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 24 }}>工作看板</h2>
+      <h2 style={{ marginBottom: isMobile ? 12 : 24, fontSize: isMobile ? 18 : undefined }}>工作看板</h2>
       <Collapse
         defaultActiveKey={kanbanData.map((d) => String(d.department_id))}
         style={{ background: 'transparent' }}
@@ -224,7 +226,7 @@ const KanbanPage: React.FC = () => {
                 </Space>
               }
             >
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)', gap: isMobile ? 16 : 12 }}>
                 {statusOrder.map((status) => {
                   const items = dept[status] as WorkItem[];
                   const colKey = `${dept.department_id}-${status}`;
@@ -255,7 +257,7 @@ const KanbanPage: React.FC = () => {
                             hoverable
                             onClick={() => openEditModal(item)}
                           >
-                            <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 13 }}>{item.title}</div>
+                            <div style={{ fontWeight: 500, marginBottom: 4, fontSize: isMobile ? 14 : 13, lineHeight: 1.35 }}>{item.title}</div>
                             <div style={{ fontSize: 12, color: '#999' }}>
                               负责人: {getAssigneeName(item)}
                             </div>

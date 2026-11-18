@@ -1,14 +1,69 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Tag, Tabs, Modal, Input, Typography, message } from 'antd';
+import { Table, Button, Space, Tag, Tabs, Modal, Input, Typography, message, Pagination, Empty, Spin } from 'antd';
 import { CheckOutlined, CloseOutlined, EditOutlined, FileSearchOutlined, AuditOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import { ASSESSMENT_STATUS_LABELS, ASSESSMENT_STATUS_COLORS, SCORE_LEVEL_LABELS, ROLE_LEVELS } from '../types';
 import type { AssessmentListItem } from '../types';
 import { assessmentApi } from '../services/api';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useAuth } from '../components/AuthProvider';
 import ScoreModal from '../components/assessment/ScoreModal';
 import RulingModal from '../components/assessment/RulingModal';
+
+
+interface MobileListProps {
+  items: AssessmentListItem[];
+  loading: boolean;
+  total: number;
+  page: number;
+  pageSize: number;
+  onPageChange: (p: number, ps: number) => void;
+  renderActions: (record: AssessmentListItem) => React.ReactNode;
+  onOpen: (record: AssessmentListItem) => void;
+}
+
+/** 移动端卡片式考核列表：一屏一条，操作按钮常驻底部 */
+const MobileAssessmentList: React.FC<MobileListProps> = ({
+  items, loading, total, page, pageSize, onPageChange, renderActions, onOpen,
+}) => {
+  if (loading) return <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>;
+  if (items.length === 0) return <Empty description="暂无待处理" style={{ padding: 32 }} />;
+  return (
+    <div>
+      {items.map((it) => (
+        <div key={it.id} className="m-card" onClick={() => onOpen(it)}>
+          <div className="m-card-title">{it.work_item_title || `考核 #${it.id}`}</div>
+          <div className="m-card-meta">
+            <Tag color={ASSESSMENT_STATUS_COLORS[it.status]} style={{ margin: 0 }}>
+              {ASSESSMENT_STATUS_LABELS[it.status] || it.status}
+            </Tag>
+            {it.current_level && (
+              <Tag color="processing" style={{ margin: 0 }}>{SCORE_LEVEL_LABELS[it.current_level] || it.current_level}</Tag>
+            )}
+            <span>{it.department_name || '-'} · {it.district_name || '-'}</span>
+            <span>主办人：{it.sponsor_name || '-'}</span>
+            <span>发起人：{it.initiator_name || '-'}</span>
+            {it.initiated_at && <span>{new Date(it.initiated_at).toLocaleString('zh-CN', { hour12: false })}</span>}
+          </div>
+          <div className="m-card-actions" onClick={(e) => e.stopPropagation()}>
+            {renderActions(it)}
+          </div>
+        </div>
+      ))}
+      {total > pageSize && (
+        <Pagination
+          style={{ textAlign: 'center', marginTop: 12 }}
+          simple
+          current={page}
+          pageSize={pageSize}
+          total={total}
+          onChange={onPageChange}
+        />
+      )}
+    </div>
+  );
+};
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -22,6 +77,7 @@ const { TextArea } = Input;
 const AssessmentTodoPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const userLevel = user?.role_level || ROLE_LEVELS[user?.role as string] || 0;
   const canRuling = userLevel >= ROLE_LEVELS.group_director;
   const [activeTab, setActiveTab] = useState<'confirm' | 'score' | 'ruling'>('confirm');
@@ -255,7 +311,7 @@ const AssessmentTodoPage: React.FC = () => {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, width: '100%', justifyContent: 'space-between' }}>
+      <Space style={{ marginBottom: isMobile ? 8 : 16, width: '100%', justifyContent: 'space-between' }}>
         <Text strong style={{ fontSize: 16 }}>待我处理</Text>
         <Button icon={<ReloadOutlined />} onClick={refresh}>刷新</Button>
       </Space>
@@ -273,7 +329,23 @@ const AssessmentTodoPage: React.FC = () => {
                 ）
               </span>
             ),
-            children: (
+            children: isMobile ? (
+              <MobileAssessmentList
+                items={confirmItems}
+                loading={loading}
+                total={confirmTotal}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchConfirm(p, ps); }}
+                onOpen={(r) => navigate(`/assessment/${r.id}`)}
+                renderActions={(r) => (
+                  <>
+                    <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => handleConfirm(r)}>确认</Button>
+                    <Button danger size="small" icon={<CloseOutlined />} onClick={() => { setRejectTarget(r); setRejectReason(''); }}>驳回</Button>
+                  </>
+                )}
+              />
+            ) : (
               <Table
                 rowKey="id"
                 columns={confirmColumns}
@@ -299,7 +371,23 @@ const AssessmentTodoPage: React.FC = () => {
                 ）
               </span>
             ),
-            children: (
+            children: isMobile ? (
+              <MobileAssessmentList
+                items={scoreItems}
+                loading={loading}
+                total={scoreTotal}
+                page={page}
+                pageSize={pageSize}
+                onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchScore(p, ps); }}
+                onOpen={(r) => navigate(`/assessment/${r.id}`)}
+                renderActions={(r) => (
+                  <>
+                    <Button type="primary" size="small" icon={<EditOutlined />} onClick={() => setScoreTarget(r)}>评分</Button>
+                    <Button size="small" icon={<FileSearchOutlined />} onClick={() => { setSupplementTarget(r); setSupplementNote(''); }}>补充凭证</Button>
+                  </>
+                )}
+              />
+            ) : (
               <Table
                 rowKey="id"
                 columns={scoreColumns}
@@ -327,7 +415,20 @@ const AssessmentTodoPage: React.FC = () => {
                       ）
                     </span>
                   ),
-                  children: (
+                  children: isMobile ? (
+                    <MobileAssessmentList
+                      items={rulingItems}
+                      loading={loading}
+                      total={rulingTotal}
+                      page={page}
+                      pageSize={pageSize}
+                      onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchRuling(p, ps); }}
+                      onOpen={(r) => navigate(`/assessment/${r.id}`)}
+                      renderActions={(r) => (
+                        <Button type="primary" size="small" icon={<AuditOutlined />} onClick={() => setRulingTarget(r)}>最终裁定</Button>
+                      )}
+                    />
+                  ) : (
                     <Table
                       rowKey="id"
                       columns={rulingColumns}

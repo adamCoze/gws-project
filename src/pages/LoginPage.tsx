@@ -38,7 +38,7 @@ const LoginPage: React.FC = () => {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-      <Card style={{ width: 400, borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
+      <Card style={{ width: 'min(400px, calc(100vw - 32px))', borderRadius: 12, boxShadow: '0 8px 32px rgba(0,0,0,0.15)' }}>
         <Space direction="vertical" size="large" style={{ width: '100%' }}>
           <div style={{ textAlign: 'center' }}>
             <Title level={3} style={{ marginBottom: 4 }}>集团工作跟进系统</Title>

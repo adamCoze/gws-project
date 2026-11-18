@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Avatar, Dropdown, Space, Typography, Modal, Input, Form, message } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Space, Typography, Modal, Input, Form, message, Drawer } from 'antd';
 import {
   DashboardOutlined,
   ProjectOutlined,
@@ -25,12 +25,15 @@ import { useAuth } from './AuthProvider';
 import { ROLE_LEVELS, ROLE_LEVEL, getRoleDisplayLabel } from '../types';
 import type { RoleType } from '../types';
 import { authApi } from '../services/api';
+import { useIsMobile } from '../hooks/useIsMobile';
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
 
 const MainLayout: React.FC = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const isMobile = useIsMobile();
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [passwordForm] = Form.useForm();
@@ -118,34 +121,46 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  const navMenu = (
+    <Menu
+      theme="dark"
+      mode="inline"
+      selectedKeys={[location.pathname]}
+      defaultOpenKeys={['admin', 'assessment']}
+      items={menuItems}
+      onClick={({ key }) => {
+        navigate(key);
+        if (isMobile) setDrawerOpen(false);
+      }}
+    />
+  );
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider trigger={null} collapsible collapsed={collapsed} theme="dark" width={220}>
-        <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: collapsed ? 14 : 16, fontWeight: 600 }}>
-          {collapsed ? 'GWS' : '集团工作跟进系统'}
-        </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[location.pathname]}
-          defaultOpenKeys={['admin', 'assessment']}
-          items={menuItems}
-          onClick={({ key }) => navigate(key)}
-        />
-      </Sider>
+      {!isMobile && (
+        <Sider trigger={null} collapsible collapsed={collapsed} theme="dark" width={220}>
+          <div style={{ height: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: collapsed ? 14 : 16, fontWeight: 600 }}>
+            {collapsed ? 'GWS' : '集团工作跟进系统'}
+          </div>
+          {navMenu}
+        </Sider>
+      )}
       <Layout>
-        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
+        <Header style={{ padding: isMobile ? '0 12px' : '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {React.createElement(collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
+            {React.createElement(isMobile || collapsed ? MenuUnfoldOutlined : MenuFoldOutlined, {
               style: { fontSize: 18, cursor: 'pointer' },
-              onClick: () => setCollapsed(!collapsed),
+              onClick: () => {
+                if (isMobile) setDrawerOpen(true);
+                else setCollapsed(!collapsed);
+              },
             })}
           </div>
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
             <Space style={{ cursor: 'pointer', lineHeight: 1.2 }} align="center">
               <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1677ff', flexShrink: 0 }} />
               {/* Header 默认 line-height 为 64px，会撑高姓名/角色文本块导致上下被裁切，这里显式收敛行高 */}
-              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2, maxWidth: 180 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2, maxWidth: isMobile ? 110 : 180 }}>
                 <Text strong ellipsis style={{ fontSize: 14, lineHeight: '20px' }}>
                   {user?.real_name || user?.username}
                 </Text>
@@ -156,10 +171,24 @@ const MainLayout: React.FC = () => {
             </Space>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 24, padding: 24, background: '#fff', borderRadius: 8, minHeight: 280 }}>
+        <Content style={{ margin: isMobile ? 8 : 24, padding: isMobile ? 12 : 24, background: '#fff', borderRadius: 8, minHeight: 280 }}>
           <Outlet />
         </Content>
       </Layout>
+
+      <Drawer
+        placement="left"
+        open={isMobile && drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        width={240}
+        closable={false}
+        styles={{ body: { padding: 0, background: '#001529' }, header: { display: 'none' } }}
+      >
+        <div style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 15, fontWeight: 600 }}>
+          集团工作跟进系统
+        </div>
+        {navMenu}
+      </Drawer>
 
       <Modal
         title="修改密码"
