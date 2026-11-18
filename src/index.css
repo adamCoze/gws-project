@@ -43,6 +43,8 @@ body {
     padding-bottom: 0;
   }
 
+  /* antd v6 的弹窗容器类名是 .ant-modal-container，v5 是 .ant-modal-content，两个都覆盖 */
+  .ant-modal .ant-modal-container,
   .ant-modal .ant-modal-content {
     border-radius: 16px 16px 0 0;
     max-height: 88vh;
@@ -52,6 +54,16 @@ body {
 
   .ant-modal .ant-modal-header {
     border-radius: 16px 16px 0 0;
+  }
+
+  .ant-modal .ant-modal-body {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  /* 底部抽屉里的表单项纵向留白收窄 */
+  .ant-modal .ant-form-item {
+    margin-bottom: 14px;
   }
 
   /* 筛选区纵向堆叠：每个筛选项独占一行、宽度拉满 */
@@ -164,4 +176,4 @@ body {
   margin-bottom: 16px;
 }
 
-/* Build: 1781710000 */
+/* Build: 1781711000 */
