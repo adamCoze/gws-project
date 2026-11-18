@@ -218,7 +218,7 @@ const MyAssessmentsPage: React.FC = () => {
   return (
     <div>
       <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ marginBottom: isMobile ? 8 : 16, width: '100%', justifyContent: 'space-between' }}>
-        <Space wrap size={isMobile ? 8 : 'middle'}>
+        <Space direction={isMobile ? 'vertical' : 'horizontal'} wrap={!isMobile} size={isMobile ? 8 : 'middle'} style={isMobile ? { width: '100%' } : undefined}>
           <Input.Search
             placeholder="搜索工作项标题"
             allowClear
@@ -228,7 +228,7 @@ const MyAssessmentsPage: React.FC = () => {
           <Select
             placeholder="状态筛选"
             allowClear
-            style={{ width: isMobile ? 'calc(50% - 4px)' : 180 }}
+            style={{ width: isMobile ? '100%' : 180 }}
             value={statusFilter}
             onChange={(v) => { setStatusFilter(v); setPage(1); fetchData(1, pageSize, keyword, v, monthFilter); }}
             options={Object.entries(ASSESSMENT_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
@@ -236,18 +236,18 @@ const MyAssessmentsPage: React.FC = () => {
           <Select
             placeholder="月份筛选（按发起时间）"
             allowClear
-            style={{ width: isMobile ? 'calc(50% - 4px)' : 190 }}
+            style={{ width: isMobile ? '100%' : 190 }}
             value={monthFilter}
             onChange={(v) => { setMonthFilter(v); setPage(1); fetchData(1, pageSize, keyword, statusFilter, v); }}
             options={monthOptions}
           />
           {errorBonus && (
-            <Button icon={<ExclamationCircleOutlined />} onClick={() => setBonusModalOpen(true)}>
+            <Button style={isMobile ? { width: '100%' } : undefined} icon={<ExclamationCircleOutlined />} onClick={() => setBonusModalOpen(true)}>
               考核指错得分：+{errorBonus.summary.total}
               {errorBonus.summary.tentative > 0 && `（暂计${errorBonus.summary.tentative}）`}
             </Button>
           )}
-          <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
+          <Button style={isMobile ? { width: '100%' } : undefined} icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
         {!isMobile && <Text type="secondary">我主办或我参与的考核记录</Text>}
       </Space>
