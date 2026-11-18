@@ -38,10 +38,10 @@ body {
 
   .ant-modal {
     width: 100vw !important;
-    max-width: 100vw;
-    margin: 0;
-    top: auto;
-    padding-bottom: 0;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    top: auto !important;
+    padding-bottom: 0 !important;
   }
 
   /* antd v6 的弹窗容器类名是 .ant-modal-container，v5 是 .ant-modal-content，两个都覆盖 */
