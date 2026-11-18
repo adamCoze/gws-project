@@ -102,6 +102,12 @@ body {
   flex: 1;
 }
 
+/* 单个操作按钮时按内容宽度，不拉满整行 */
+.m-card-actions > *:only-child {
+  flex: 0 0 auto;
+  min-width: 96px;
+}
+
 /* 移动端触控友好：按钮最小高度 36px */
 @media (max-width: 767px) {
   .m-card-actions .ant-btn {
@@ -119,4 +125,4 @@ body {
   margin-bottom: 16px;
 }
 
-/* Build: 1781707700 */
+/* Build: 1781707800 */
