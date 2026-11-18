@@ -9,6 +9,8 @@ import type { PendingAssessmentItem, SkipRuleInfo, SponsorRoleOption } from '../
 import { ASSESSMENT_STATUS_LABELS, ROLE_LEVEL_LABELS } from '../types';
 import { assessmentApi, departmentApi, districtApi } from '../services/api';
 import { useAuth } from '../components/AuthProvider';
+import { useIsMobile } from '../hooks/useIsMobile';
+import MobileCardList from '../components/MobileCardList';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -281,7 +283,7 @@ const PendingAssessmentPage: React.FC = () => {
           onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); }}
           renderCard={(r: PendingAssessmentItem) => (
             <>
-              <div className="m-card-title">{r.work_item_title || `工作项 #${r.work_item_id}`}</div>
+              <div className="m-card-title">{r.title || `工作项 #${r.work_item_id}`}</div>
               <div className="m-card-meta">
                 <span>{r.department_name || '-'} · {r.district_name || '-'}</span>
                 <span>主办人：{r.sponsor_name || '无主办人'}</span>

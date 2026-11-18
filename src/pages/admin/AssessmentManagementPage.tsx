@@ -500,7 +500,7 @@ const AssessmentManagementPage: React.FC = () => {
           total={total}
           page={page}
           pageSize={pageSize}
-          onPageChange={(p, ps) => { setPage(p); setPageSize(ps); fetchData(p, ps); }}
+          onPageChange={(p, ps) => { setPage(p); setPageSize(ps); }}
           renderCard={(r: any) => {
             const groupScore = (r.scores || []).find((x: any) => x.level === 'group');
             const parts = groupScore?.participants || [];
