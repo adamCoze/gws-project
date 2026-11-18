@@ -140,3 +140,8 @@ node-compile-cache/
 .vite/
 .coze-logs
 backend/data/
+
+# HTTPS 证书与 ACME 验证目录（不入库）
+/certs/
+/acme/
+*.bak_*
