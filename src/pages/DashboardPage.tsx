@@ -261,6 +261,14 @@ const DashboardPage: React.FC = () => {
       render: (type: string) => <Tag color={TYPE_COLORS[type] || 'blue'}>{TYPE_LABELS[type] || type}</Tag>,
     },
     {
+      title: '主办人', key: 'sponsor', width: 110, ellipsis: true,
+      render: (_: unknown, record: WorkItem) => (
+        <Tooltip title={record.sponsor?.real_name || record.sponsor?.username || ''}>
+          <span>{record.sponsor?.real_name || record.sponsor?.username || '-'}</span>
+        </Tooltip>
+      ),
+    },
+    {
       title: '状态', dataIndex: 'status', key: 'status', width: 100,
       render: (status: string, record: WorkItem) => (
         <Tag

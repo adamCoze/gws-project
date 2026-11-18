@@ -142,11 +142,16 @@ const MainLayout: React.FC = () => {
             })}
           </div>
           <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-            <Space style={{ cursor: 'pointer' }}>
-              <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1677ff' }} />
-              <div>
-                <Text strong style={{ display: 'block', lineHeight: 1.2 }}>{user?.real_name || user?.username}</Text>
-                <Text type="secondary" style={{ fontSize: 12 }}>{getRoleDisplayLabel(user?.role_level, user?.role as RoleType)}</Text>
+            <Space style={{ cursor: 'pointer', lineHeight: 1.2 }} align="center">
+              <Avatar icon={<UserOutlined />} style={{ backgroundColor: '#1677ff', flexShrink: 0 }} />
+              {/* Header 默认 line-height 为 64px，会撑高姓名/角色文本块导致上下被裁切，这里显式收敛行高 */}
+              <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', lineHeight: 1.2, maxWidth: 180 }}>
+                <Text strong ellipsis style={{ fontSize: 14, lineHeight: '20px' }}>
+                  {user?.real_name || user?.username}
+                </Text>
+                <Text type="secondary" ellipsis style={{ fontSize: 12, lineHeight: '16px' }}>
+                  {getRoleDisplayLabel(user?.role_level, user?.role as RoleType)}
+                </Text>
               </div>
             </Space>
           </Dropdown>
