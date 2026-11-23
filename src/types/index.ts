@@ -1,7 +1,7 @@
 export type UserRole = 'admin' | 'president' | 'regulator' | 'district_manager' | 'manager' | 'staff' | 'consultant';
 export type RoleType = UserRole;
 export type WorkItemStatus = 'pending' | 'completed' | 'overdue' | 'cancelled';
-export type WorkItemType = 'task' | 'cosign';
+export type WorkItemType = 'task' | 'cosign' | 'report';
 export type EmailProcessResult = 'success' | 'ai_failed' | 'retry';
 
 // 9级角色等级

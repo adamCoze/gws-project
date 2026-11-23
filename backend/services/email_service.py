@@ -32,6 +32,18 @@ logger = logging.getLogger(__name__)
 # 系统默认管理员邮箱（用于主动缓存 conversationId）
 DEFAULT_ADMIN_EMAIL = "adam.wang@ntg.com.hk"
 
+# ── 报告/汇报类邮件关键词（用于AI识别兜底） ──
+# 标题含以下关键词且不含会签/审批类关键词时，强制标记为 report（汇报类）
+REPORT_KEYWORDS = [
+    "周报", "月报", "日报", "季报", "年报",
+    "汇总", "报表", "简报", "报告", "情况说明",
+    "每日电邮", "每日简历", "例会纪要", "例会纲要",
+    "信息汇总", "工作总结", "工作汇报", "进展汇报",
+    "进度汇报", "周报汇总", "月度汇总",
+]
+# 排除关键词：如果含这些词，即使有report关键词也不强制（交给AI判断）
+REPORT_EXCLUDE_KEYWORDS = ["会签", "审批", "签批", "签署", "批复", "征求意见", "审核", "签核"]
+
 _monitor_task: Optional[asyncio.Task] = None
 _running = False
 MAX_RETRY_COUNT = 2
@@ -514,6 +526,16 @@ async def _process_email(
             elif isinstance(due_date_raw, datetime):
                 due_date = due_date_raw
             item_type = analysis.get("type", "task")
+            # ── report类型关键词兜底（防止AI漏识别报告/周报/汇总类邮件） ──
+            # 如果标题含明确报告类关键词，且不含会签审批类词，强制为report
+            if item_type != "cosign":
+                _norm_subj = _normalize_subject(subject)
+                _has_report_kw = any(kw in _norm_subj for kw in REPORT_KEYWORDS)
+                _has_exclude_kw = any(kw in _norm_subj for kw in REPORT_EXCLUDE_KEYWORDS)
+                if _has_report_kw and not _has_exclude_kw:
+                    if item_type != "report":
+                        logger.info(f"标题含汇报关键词，类型修正 {item_type} → report: {_norm_subj[:50]}")
+                    item_type = "report"
             # 设置默认截止日期：cosign/report=24小时，task=7个自然日
             if not due_date:
                 if item_type in ("cosign", "report"):

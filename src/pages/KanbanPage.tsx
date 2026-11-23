@@ -268,8 +268,8 @@ const KanbanPage: React.FC = () => {
                             )}
                             <div style={{ marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <div>
-                                <Tag color={item.item_type === 'cosign' ? 'purple' : 'blue'} style={{ fontSize: 11 }}>
-                                  {item.item_type === 'cosign' ? '会签' : '任务'}
+                                <Tag color={item.item_type === 'cosign' ? 'purple' : item.item_type === 'report' ? 'cyan' : 'blue'} style={{ fontSize: 11 }}>
+                                  {item.item_type === 'cosign' ? '会签' : item.item_type === 'report' ? '汇报' : '任务'}
                                 </Tag>
                                 {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
                               </div>
