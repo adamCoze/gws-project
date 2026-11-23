@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.orm.attributes import set_committed_value
@@ -439,6 +439,14 @@ async def get_work_item(item_id: int, db: AsyncSession = Depends(get_db)):
     now = datetime.utcnow()
     if item.status == "pending" and item.due_date and item.due_date < now:
         set_committed_value(item, "status", "overdue")
+    # 详情被打开即视为已读：清掉「新回复」标记（L2，2026-11-23）
+    # 用独立 UPDATE，避免 commit 使已 selectinload 的关系失效
+    if item.has_new_reply:
+        await db.execute(
+            update(WorkItem).where(WorkItem.id == item_id).values(has_new_reply=False)
+        )
+        await db.commit()
+        set_committed_value(item, "has_new_reply", False)
     await _resolve_assignee_names(db, [item])
     return item
 

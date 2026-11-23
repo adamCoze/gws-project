@@ -213,6 +213,8 @@ class WorkItemOut(WorkItemBase):
     sender_email: Optional[str] = None
     email_date: Optional[datetime] = None
     latest_progress: Optional[str] = None
+    has_new_reply: bool = False
+    thread_id: Optional[str] = None
     sponsor_id: Optional[int] = None
     completed_by: Optional[int] = None
     completed_at: Optional[datetime] = None

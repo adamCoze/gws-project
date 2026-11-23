@@ -271,6 +271,7 @@ const KanbanPage: React.FC = () => {
                                 <Tag color={item.item_type === 'cosign' ? 'purple' : item.item_type === 'report' ? 'cyan' : 'blue'} style={{ fontSize: 11 }}>
                                   {item.item_type === 'cosign' ? '会签' : item.item_type === 'report' ? '汇报' : '任务'}
                                 </Tag>
+                                {item.has_new_reply && <Tag color="cyan" style={{ fontSize: 11 }}>新回复</Tag>}
                                 {item.is_confidential && <Tag color="red" style={{ fontSize: 11 }}>机密</Tag>}
                               </div>
                               {emailLinkStatus[item.id] && (

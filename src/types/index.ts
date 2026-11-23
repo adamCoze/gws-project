@@ -192,6 +192,9 @@ export interface WorkItem {
   message_id?: string;
   sender_email?: string;
   latest_progress?: string;
+  /** 邮件串收到后续回复（汇报类打标，L2 2026-11-23） */
+  has_new_reply?: boolean;
+  thread_id?: string;
   created_at: string;
   updated_at: string;
   department?: Department;

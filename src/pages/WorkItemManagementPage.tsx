@@ -153,7 +153,16 @@ const WorkItemManagementPage: React.FC = () => {
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
     {
       title: '标题', dataIndex: 'title', key: 'title', width: 250, ellipsis: true,
-      render: (text: string) => <Tooltip title={text}><span>{text}</span></Tooltip>,
+      render: (text: string, record: WorkItem) => (
+        <Tooltip title={text}>
+          <span>
+            {text}
+            {record.has_new_reply ? (
+              <Tag color="cyan" style={{ marginLeft: 6, fontSize: 11 }}>新回复</Tag>
+            ) : null}
+          </span>
+        </Tooltip>
+      ),
     },
     {
       title: '类型', dataIndex: 'item_type', key: 'item_type', width: 80,
