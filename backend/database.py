@@ -368,6 +368,26 @@ async def _run_migrations():
                 logger.info(f"迁移 v15：{len(_items15)} 条未分配工作项已补区域")
                 new_version = 15
 
+            # ---- v16: 邮件线程标识（L1 去重基础，2026-11-23）----
+            if current_version < 16:
+                if not await _column_exists("work_items", "thread_id"):
+                    await session.execute(text("ALTER TABLE work_items ADD COLUMN thread_id VARCHAR(500)"))
+                    logger.info("迁移 v16：work_items 表新增 thread_id 字段")
+                if not await _column_exists("work_items", "has_new_reply"):
+                    await session.execute(text("ALTER TABLE work_items ADD COLUMN has_new_reply BOOLEAN DEFAULT 0 NOT NULL"))
+                    logger.info("迁移 v16：work_items 表新增 has_new_reply 字段")
+                if not await _column_exists("email_logs", "thread_id"):
+                    await session.execute(text("ALTER TABLE email_logs ADD COLUMN thread_id VARCHAR(500)"))
+                if not await _column_exists("email_logs", "in_reply_to"):
+                    await session.execute(text("ALTER TABLE email_logs ADD COLUMN in_reply_to VARCHAR(500)"))
+                if not await _column_exists("email_logs", "references_header"):
+                    await session.execute(text("ALTER TABLE email_logs ADD COLUMN references_header TEXT"))
+                await session.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_work_items_thread_id ON work_items(thread_id)"
+                ))
+                logger.info("迁移 v16：thread_id 索引已建立")
+                new_version = 16
+
             # 更新迁移版本
             if new_version > current_version:
                 if version_config:

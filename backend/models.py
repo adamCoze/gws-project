@@ -178,6 +178,9 @@ class WorkItem(Base):
     cosign_auto_complete_at = Column(DateTime, nullable=True)  # 计划自动完成时间
     cosign_payment_confirmed = Column(Boolean, default=False)  # 支付确认标记（收到"已完成支付"等表述）
     latest_progress = Column(Text, nullable=True)
+    # 邮件线程标识（L1，2026-11-23）：同一邮件串的所有邮件归到同一工作项
+    thread_id = Column(String(500), nullable=True, index=True)
+    has_new_reply = Column(Boolean, default=False, nullable=False)  # 已完成项收到后续回复的角标
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -238,6 +241,10 @@ class EmailLog(Base):
     retry_count = Column(Integer, default=0, nullable=False)
     error_message = Column(Text, nullable=True)
     work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=True)
+    # 邮件线程信息（L1，2026-11-23）
+    thread_id = Column(String(500), nullable=True)
+    in_reply_to = Column(String(500), nullable=True)
+    references_header = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
-from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult, WorkItemStatus
+from models import EmailConfig, WorkItem, Department, User, EmailLog, EmailProcessResult, WorkItemStatus, StatusChangeLog
 from services.ai_service import analyze_email_with_ai
 from services.alimail_api import cache_conversation_ids_for_message
 from services.cosign_service import (
@@ -103,6 +103,50 @@ def _subject_similarity(s1: str, s2: str) -> float:
     if not n1 or not n2:
         return 0.0
     return SequenceMatcher(None, n1, n2).ratio()
+
+
+# ── 邮件线程标识（L1，2026-11-23）────────────────────────────────
+# 用标准邮件头 In-Reply-To / References 建立精确的线程关系，
+# 不再依赖主题字符串相似度。主题相似度降级为兜底。
+
+_MSG_ID_RE = re.compile(r"<[^<>]+>")
+
+
+def _parse_msg_ids(raw: str) -> list[str]:
+    """从 References / In-Reply-To 头解析 Message-ID 列表（保留尖括号）"""
+    if not raw:
+        return []
+    ids = _MSG_ID_RE.findall(str(raw))
+    if not ids:
+        # 兜底：部分客户端不带尖括号，只收含 @ 的 token，避免把噪声当 Message-ID
+        ids = [x.strip() for x in str(raw).split() if "@" in x]
+    return [i.strip() for i in ids if i.strip()]
+
+
+def _thread_root(message_id: str, references: str, in_reply_to: str) -> str:
+    """线程根 ID：References 首个 ID > In-Reply-To > 自身 Message-ID"""
+    refs = _parse_msg_ids(references)
+    if refs:
+        return refs[0]
+    irt = _parse_msg_ids(in_reply_to)
+    if irt:
+        return irt[0]
+    return (message_id or "").strip()
+
+
+def _thread_lookup_ids(message_id: str, references: str, in_reply_to: str) -> list[str]:
+    """用于反查工作项的 ID 集合：引用链 + In-Reply-To + 自身"""
+    ids = _parse_msg_ids(references) + _parse_msg_ids(in_reply_to)
+    if message_id:
+        ids.append(message_id.strip())
+    # 去重保序
+    seen = set()
+    out = []
+    for i in ids:
+        if i and i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
 
 
 def _get_email_body(msg) -> str:
@@ -213,10 +257,15 @@ async def _check_email_config(config: EmailConfig):
                 cc_addrs = _decode_str(msg.get("Cc"))
                 date_str = msg.get("Date", "")
                 message_id = msg.get("Message-ID", f"unknown-{datetime.utcnow().timestamp()}")
+                in_reply_to = _decode_str(msg.get("In-Reply-To", ""))
+                references = _decode_str(msg.get("References", ""))
                 body = _get_email_body(msg)
 
                 if subject and body:
-                    await _process_email_with_retry(config, message_id, subject, from_addr, date_str, body, to_addrs, cc_addrs)
+                    await _process_email_with_retry(
+                        config, message_id, subject, from_addr, date_str, body,
+                        to_addrs, cc_addrs, in_reply_to=in_reply_to, references=references
+                    )
                     mail.store(eid, '+FLAGS', '\\Seen')
 
         mail.logout()
@@ -419,13 +468,18 @@ async def _process_email_with_retry(
     date_str: str,
     body: str,
     to_addrs: str = "",
-    cc_addrs: str = ""
+    cc_addrs: str = "",
+    in_reply_to: str = "",
+    references: str = ""
 ):
     """处理邮件，支持重试机制"""
     retry_count = 0
 
     while retry_count <= MAX_RETRY_COUNT:
-        result = await _process_email(message_id, subject, from_addr, date_str, body, retry_count, to_addrs, cc_addrs)
+        result = await _process_email(
+            message_id, subject, from_addr, date_str, body, retry_count, to_addrs, cc_addrs,
+            in_reply_to=in_reply_to, references=references
+        )
 
         if result == EmailProcessResult.SUCCESS:
             return
@@ -455,8 +509,47 @@ async def _process_email_with_retry(
                 return
 
 
-async def _find_matching_work_item(db: AsyncSession, subject: str, item_type: str) -> Optional[WorkItem]:
-    """查找标题相似的工作项（相似度 > 80%），用于合并"""
+async def _find_matching_work_item(
+    db: AsyncSession,
+    subject: str,
+    item_type: str,
+    lookup_ids: Optional[list] = None,
+) -> Optional[WorkItem]:
+    """查找可合并的工作项。
+
+    优先级（L1，2026-11-23）：
+      ① 邮件线程精确匹配：工作项记录的 thread_id 出现在本邮件的引用链里
+      ② 引用链反查：引用链里的某封历史邮件曾归属哪个工作项
+      ③ 主题相似度兜底（仅未完成项，避免误并）
+
+    ① ② 不受工作项状态限制——已完成/已取消的工作项同样接收后续邮件，
+    这正是此前「同一邮件串生成多个工作项」的根因。
+    """
+    if lookup_ids:
+        # ① 线程精确匹配
+        result = await db.execute(
+            select(WorkItem).where(WorkItem.thread_id.in_(lookup_ids))
+        )
+        for item in result.scalars().all():
+            logger.info(f"线程匹配到工作项 #{item.id}（状态 {item.status}）")
+            return item
+
+        # ② 引用链反查历史邮件
+        result = await db.execute(
+            select(EmailLog.work_item_id)
+            .where(EmailLog.message_id.in_(lookup_ids), EmailLog.work_item_id.isnot(None))
+            .order_by(EmailLog.id)
+            .limit(1)
+        )
+        wid = result.scalar_one_or_none()
+        if wid:
+            result = await db.execute(select(WorkItem).where(WorkItem.id == wid))
+            item = result.scalar_one_or_none()
+            if item:
+                logger.info(f"引用链反查命中工作项 #{item.id}（状态 {item.status}）")
+                return item
+
+    # ③ 主题相似度兜底
     result = await db.execute(
         select(WorkItem).where(WorkItem.status != WorkItemStatus.completed)
     )
@@ -479,9 +572,14 @@ async def _process_email(
     body: str,
     retry_count: int = 0,
     to_addrs: str = "",
-    cc_addrs: str = ""
+    cc_addrs: str = "",
+    in_reply_to: str = "",
+    references: str = ""
 ) -> EmailProcessResult:
     """处理邮件：AI分析并入库，返回处理结果"""
+    # 线程标识：同一邮件串的所有邮件共享同一个 thread_root
+    thread_root = _thread_root(message_id, references, in_reply_to)
+    lookup_ids = _thread_lookup_ids(message_id, references, in_reply_to)
     async with async_session() as db:
         try:
             # 检查是否已处理过该邮件
@@ -555,7 +653,7 @@ async def _process_email(
                 new_status = WorkItemStatus.pending
 
             # 查找是否有相似的工作项（重复合并）
-            matching_item = await _find_matching_work_item(db, subject, item_type)
+            matching_item = await _find_matching_work_item(db, subject, item_type, lookup_ids)
 
             if matching_item:
                 # 合并到已有工作项：更新内容、责任人、状态
@@ -567,11 +665,46 @@ async def _process_email(
                 # 若随后续邮件更新，会覆盖签署人名单、导致主办人漂移到回复人。
                 if due_date:
                     matching_item.due_date = due_date
+                # 本次邮件到达前的工作项状态（L2 判定用，须在状态升级之前取）
+                _prev_status = matching_item.status
                 # 状态只升级，不降级（completed > pending）
                 status_priority = {"pending": 0, "completed": 1, "cancelled": 0}
                 if status_priority.get(new_status.value, 0) > status_priority.get(matching_item.status, 0):
                     matching_item.status = new_status
                 matching_item.updated_at = datetime.utcnow()
+
+                # 补全线程标识（历史工作项可能没有）
+                if not matching_item.thread_id and thread_root:
+                    matching_item.thread_id = thread_root
+
+                # ── L2：已完成工作项收到邮件串后续回复的处理（2026-11-23）──
+                # 汇报：只留痕不复活（它是知会件，且考核取数只认 completed）
+                # 任务：本次回复若未表示「已完成」，复活为待办；回复本身说已完成则保持完成
+                # 会签：状态交给 L3 会签追踪，这里不动
+                if matching_item.item_type == "report":
+                    matching_item.has_new_reply = True
+                    _prog = (analysis.get("summary") or "").strip()
+                    if _prog:
+                        _line = f"[{datetime.utcnow():%Y-%m-%d %H:%M}] {_prog[:300]}"
+                        _old = (matching_item.latest_progress or "").strip()
+                        matching_item.latest_progress = ((_old + "\n" + _line).strip())[-2000:]
+                    logger.info(f"汇报 #{matching_item.id} 收到后续邮件，已追加进度（不复活）")
+                elif (
+                    matching_item.item_type == "task"
+                    and _prev_status == WorkItemStatus.completed.value
+                    and new_status != WorkItemStatus.completed
+                ):
+                    matching_item.status = WorkItemStatus.pending.value
+                    matching_item.completed_at = None
+                    matching_item.completed_by = None
+                    db.add(StatusChangeLog(
+                        work_item_id=matching_item.id,
+                        old_status=WorkItemStatus.completed.value,
+                        new_status=WorkItemStatus.pending.value,
+                        operator_id=None,
+                        remark="收到邮件串后续回复，系统自动重新打开",
+                    ))
+                    logger.info(f"任务 #{matching_item.id} 收到后续回复，已自动重新打开")
 
                 work_item_id = matching_item.id
 
@@ -644,6 +777,7 @@ async def _process_email(
                     email_from=from_addr,
                     sender_email=_extract_sender_email(from_addr),
                     email_date=datetime.utcnow(),
+                    thread_id=thread_root,
                 )
                 db.add(item)
                 await db.flush()
@@ -665,6 +799,9 @@ async def _process_email(
                 retry_count=retry_count,
                 error_message=None,
                 work_item_id=work_item_id,
+                thread_id=thread_root,
+                in_reply_to=in_reply_to or None,
+                references_header=references or None,
             )
             db.add(log)
             await db.commit()
