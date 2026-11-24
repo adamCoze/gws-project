@@ -378,6 +378,11 @@ async def _send_ai_failure_alert(config_email: str, failures: list):
     """
     import time
     global _last_alert_time, _pending_failures
+
+    # 告警开关：沙箱等实例关闭，避免向管理员发告警邮件
+    if os.getenv("AI_FAILURE_ALERT_ENABLED", "true").strip().lower() in ("0", "false", "no", "off"):
+        logger.info("AI失败告警已关闭（AI_FAILURE_ALERT_ENABLED=false）")
+        return
     
     now = time.time()
     _pending_failures.extend(failures)

@@ -46,7 +46,12 @@ async def lifespan(app: FastAPI):
                 logger.error(f"每日通报调度器异常: {e}", exc_info=True)
                 await asyncio.sleep(60)
 
-    notification_task = asyncio.create_task(daily_notification_scheduler())
+    # 每日通报开关：沙箱等只读实例必须关闭，否则会向全员群发通报邮件
+    if os.getenv("DAILY_NOTIFICATION_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off"):
+        notification_task = asyncio.create_task(daily_notification_scheduler())
+    else:
+        notification_task = None
+        logger.info("每日通报已关闭（DAILY_NOTIFICATION_ENABLED=false）")
 
     # 启动会签自动完成定时检查（每10分钟检查一次）
     from services.cosign_service import check_and_auto_complete_cosign, backfill_existing_cosign_items, migrate_add_payment_column
@@ -80,7 +85,8 @@ async def lifespan(app: FastAPI):
     # 关闭邮件监听
     from services.email_service import stop_email_monitor
     await stop_email_monitor()
-    notification_task.cancel()
+    if notification_task:
+        notification_task.cancel()
     cosign_task.cancel()
 
 

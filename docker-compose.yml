@@ -56,6 +56,9 @@ services:
       - SANDBOX_FETCH_DAYS=7
       - SANDBOX_FETCH_LIMIT=50
       - GWS_AI_SCORING_ENABLED=false
+      # 沙箱只读：不发每日通报、不发 AI 失败告警，避免误发全员邮件
+      - DAILY_NOTIFICATION_ENABLED=false
+      - AI_FAILURE_ALERT_ENABLED=false
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
       interval: 30s
