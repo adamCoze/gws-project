@@ -3,6 +3,7 @@ import asyncio
 import email
 import imaplib
 import logging
+import os
 from datetime import datetime, timedelta
 import re
 from difflib import SequenceMatcher
@@ -28,6 +29,16 @@ from services.cosign_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── 沙箱只读抓取（2026-11-24）────────────────────────────────
+# 沙箱实例与生产共用同一个邮箱时，必须满足：
+#   ① 只读打开 INBOX（readonly），绝不改动 \Seen 等标志，生产实例不受影响
+#   ② 按 SINCE 日期窗口取信，而不是 UNSEEN（生产每 5 分钟就把新信标已读）
+#   ③ 每轮上限可调（默认 50 封/轮，5 分钟一轮，按最旧优先逐步推进）
+# 默认关闭（SANDBOX_FETCH_DAYS=0），香港生产实例行为完全不变。
+SANDBOX_FETCH_DAYS = int(os.getenv("SANDBOX_FETCH_DAYS", "0") or 0)
+SANDBOX_FETCH_LIMIT = int(os.getenv("SANDBOX_FETCH_LIMIT", "50") or 50)
+
 
 # 系统默认管理员邮箱（用于主动缓存 conversationId）
 DEFAULT_ADMIN_EMAIL = "adam.wang@ntg.com.hk"
@@ -235,18 +246,60 @@ def _extract_forwarded_content(body: str) -> str:
     return body
 
 
+async def _message_id_exists(message_id: str) -> bool:
+    """该邮件是否已入库（沙箱回填用，避免每轮重复拉全文）"""
+    if not message_id:
+        return False
+    async with async_session() as db:
+        result = await db.execute(select(EmailLog.id).where(EmailLog.message_id == message_id).limit(1))
+        return result.scalar_one_or_none() is not None
+
+
 async def _check_email_config(config: EmailConfig):
-    """检查单个邮箱配置的新邮件"""
+    """检查单个邮箱配置的新邮件
+
+    沙箱模式（SANDBOX_FETCH_DAYS>0）：只读打开 INBOX + 按 SINCE 窗口取信 +
+    不改邮件标志，可与生产实例共用同一邮箱做数据对照。
+    """
+    sandbox_mode = SANDBOX_FETCH_DAYS > 0
     try:
         loop = asyncio.get_event_loop()
-        mail = await loop.run_in_executor(None, _imap_connect, config)
+        mail = await loop.run_in_executor(None, _imap_connect, config, sandbox_mode)
         if not mail:
             return
 
-        _, messages = mail.search(None, "UNSEEN")
-        email_ids = messages[0].split()
+        if sandbox_mode:
+            since = (datetime.utcnow() - timedelta(days=SANDBOX_FETCH_DAYS)).strftime("%d-%b-%Y")
+            _, messages = mail.search(None, f'(SINCE "{since}")')
+            email_ids = messages[0].split()
+            per_round = SANDBOX_FETCH_LIMIT
+        else:
+            _, messages = mail.search(None, "UNSEEN")
+            email_ids = messages[0].split()
+            per_round = 10
 
-        for eid in email_ids[:10]:
+        if sandbox_mode:
+            # 先只看 Message-ID 头，跳过已入库的，避免每轮把窗口内全部正文重拉一遍
+            pending = []
+            for eid in email_ids[:per_round]:
+                mid = ""
+                try:
+                    _, hdr = mail.fetch(eid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
+                    if hdr and hdr[0]:
+                        raw_hdr = hdr[0][1] if isinstance(hdr[0], tuple) else hdr[0]
+                        if raw_hdr:
+                            mid = (email.message_from_bytes(raw_hdr).get("Message-ID") or "").strip()
+                except Exception:
+                    mid = ""
+                if mid and await _message_id_exists(mid):
+                    continue
+                pending.append(eid)
+            if len(pending) != len(email_ids[:per_round]):
+                logger.info(f"沙箱抓取：窗口内 {len(email_ids[:per_round])} 封，待处理 {len(pending)} 封")
+            email_ids = pending
+            per_round = len(email_ids)
+
+        for eid in email_ids[:per_round]:
             _, msg_data = mail.fetch(eid, "(RFC822)")
             if msg_data and msg_data[0]:
                 raw_email = msg_data[0][1]
@@ -266,7 +319,8 @@ async def _check_email_config(config: EmailConfig):
                         config, message_id, subject, from_addr, date_str, body,
                         to_addrs, cc_addrs, in_reply_to=in_reply_to, references=references
                     )
-                    mail.store(eid, '+FLAGS', '\\Seen')
+                    if not sandbox_mode:
+                        mail.store(eid, '+FLAGS', '\\Seen')
 
         mail.logout()
 
@@ -281,12 +335,16 @@ async def _check_email_config(config: EmailConfig):
         logger.error(f"检查邮箱 {config.email_address} 失败: {e}")
 
 
-def _imap_connect(config: EmailConfig) -> Optional[imaplib.IMAP4_SSL]:
-    """IMAP 连接（同步）"""
+def _imap_connect(config: EmailConfig, readonly: bool = False) -> Optional[imaplib.IMAP4_SSL]:
+    """IMAP 连接（同步）
+
+    readonly=True 时以只读方式打开 INBOX：服务器会拒绝 STORE 等写操作，
+    确保沙箱实例不可能影响生产实例依赖的 \Seen 标志。
+    """
     try:
         mail = imaplib.IMAP4_SSL(config.imap_host, config.imap_port, timeout=30)
         mail.login(config.username, config.password)
-        mail.select("INBOX")
+        mail.select("INBOX", readonly=readonly)
         return mail
     except Exception as e:
         logger.error(f"IMAP连接失败 {config.email_address}: {e}")

@@ -145,3 +145,7 @@ backend/data/
 /certs/
 /acme/
 *.bak_*
+
+# 沙箱实例（2026-11-24）
+data-sandbox/
+deploy/.htpasswd-sandbox

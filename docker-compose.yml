@@ -27,3 +27,38 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  # ── 沙箱实例（2026-11-24）──────────────────────────────────
+  # 与 app 同一镜像、同一份代码，只有数据目录 / 邮箱配置 / 环境变量不同：
+  #   · 数据独立：./data-sandbox → 不碰生产库
+  #   · 抓取只读：SANDBOX_FETCH_DAYS>0 时只读打开 INBOX、按日期窗口取信、不改邮件标志
+  #   · 入口独立：宿主 8443 → 容器 443，Basic Auth + 业务登录双层
+  sandbox:
+    image: gws-project-app
+    container_name: gws-sandbox
+    restart: unless-stopped
+    ports:
+      - "8443:443"
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./backend:/app/backend
+      - ./dist:/app/dist
+      - ./data-sandbox:/app/backend/data
+      - ./deploy/nginx.sandbox.conf:/etc/nginx/sites-available/default:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./deploy/.htpasswd-sandbox:/etc/nginx/.htpasswd:ro
+      - /etc/localtime:/etc/localtime:ro
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - TZ=Asia/Shanghai
+      - SANDBOX_FETCH_DAYS=7
+      - SANDBOX_FETCH_LIMIT=50
+      - GWS_AI_SCORING_ENABLED=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
