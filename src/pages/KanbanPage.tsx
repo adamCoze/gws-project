@@ -186,15 +186,20 @@ const KanbanPage: React.FC = () => {
   const handleEmailLink = async (e: React.MouseEvent, item: WorkItem) => {
     e.stopPropagation();
     setEmailLoadingId(item.id);
+    // 先同步开一个空白窗口占位：查邮箱接口慢的时候，异步 window.open 会被浏览器当弹窗拦截
+    const pendingWin = window.open('', '_blank');
     try {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
-        window.open(res.url, '_blank');
+        if (pendingWin) pendingWin.location.href = res.url;
+        else window.open(res.url, '_blank');
       } else {
+        if (pendingWin) pendingWin.close();
         message.warning(res.error || '未找到原邮件');
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       }
     } catch {
+      if (pendingWin) pendingWin.close();
       message.error('获取邮件链接失败');
     } finally {
       setEmailLoadingId(null);

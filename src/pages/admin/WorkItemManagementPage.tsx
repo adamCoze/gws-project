@@ -355,11 +355,15 @@ const WorkItemManagementPage: React.FC = () => {
 
   const handleEmailLink = async (item: WorkItem) => {
     setEmailLoadingId(item.id);
+    // 先同步开一个空白窗口占位：查邮箱接口慢的时候，异步 window.open 会被浏览器当弹窗拦截
+    const pendingWin = window.open('', '_blank');
     try {
       const res = await workItemApi.getEmailUrl(item.id) as any;
       if (res.url) {
-        window.open(res.url, '_blank');
+        if (pendingWin) pendingWin.location.href = res.url;
+        else window.open(res.url, '_blank');
       } else if (res.search_url) {
+        if (pendingWin) pendingWin.close();
         notification.warning({
           message: '未找到原邮件',
           description: (
@@ -374,10 +378,12 @@ const WorkItemManagementPage: React.FC = () => {
         });
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       } else {
+        if (pendingWin) pendingWin.close();
         message.warning(res.error || '未找到原邮件');
         setEmailLinkStatus(prev => ({ ...prev, [item.id]: false }));
       }
     } catch {
+      if (pendingWin) pendingWin.close();
       message.error('获取邮件链接失败');
     } finally {
       setEmailLoadingId(null);
