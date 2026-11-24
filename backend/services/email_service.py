@@ -279,9 +279,13 @@ async def _check_email_config(config: EmailConfig):
             per_round = 10
 
         if sandbox_mode:
-            # 先只看 Message-ID 头，跳过已入库的，避免每轮把窗口内全部正文重拉一遍
+            # 先只看 Message-ID 头，跳过已入库的，避免每轮把窗口内全部正文重拉一遍。
+            # 注意：必须"边扫边收集"，否则处理过的邮件会一直占住前 N 个位置，永远推进不到新的。
+            total_in_window = len(email_ids)
             pending = []
-            for eid in email_ids[:per_round]:
+            for eid in email_ids:
+                if len(pending) >= per_round:
+                    break
                 mid = ""
                 try:
                     _, hdr = mail.fetch(eid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])")
@@ -294,8 +298,7 @@ async def _check_email_config(config: EmailConfig):
                 if mid and await _message_id_exists(mid):
                     continue
                 pending.append(eid)
-            if len(pending) != len(email_ids[:per_round]):
-                logger.info(f"沙箱抓取：窗口内 {len(email_ids[:per_round])} 封，待处理 {len(pending)} 封")
+            logger.info(f"沙箱抓取：窗口内 {total_in_window} 封，本轮待处理 {len(pending)} 封")
             email_ids = pending
             per_round = len(email_ids)
 
