@@ -14,7 +14,7 @@ import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import async_session
@@ -570,6 +570,55 @@ async def _process_email_with_retry(
                 return
 
 
+def _pick_dept_leader(users, department_id) -> Optional[int]:
+    """部门负责人：本部门内 role_level 最高者（含副角色），同级取 id 最小。
+
+    副角色结构 [{role_level, department_id, district_id}]，主角色看 department_id/role_level。
+    """
+    if not department_id:
+        return None
+    best = None
+    for u in users:
+        in_dept = (u.department_id == department_id)
+        lvl = u.role_level or 0 if in_dept else -1
+        for sr in (u.secondary_roles or []):
+            try:
+                if int(sr.get("department_id") or 0) == int(department_id):
+                    in_dept = True
+                    lvl = max(lvl, int(sr.get("role_level") or 0))
+            except Exception:
+                continue
+        if not in_dept:
+            continue
+        if best is None or lvl > best[0]:
+            best = (lvl, u.id)
+    return best[1] if best else None
+
+
+async def _resolve_sponsor_id(db: AsyncSession, sender_email: Optional[str],
+                              department_id: Optional[int]) -> Optional[int]:
+    """主办人认定（2026-11-24）
+
+    口径：主办人 = 该工作项线程第一封邮件的发件人。
+    发件人不在系统里（外部客户、未建账号的同事）时，回退到该工作项所属部门的负责人。
+    合并后续邮件时不调用本函数 —— 主办人以最早那封为准，不能漂移到回复人。
+    """
+    try:
+        if sender_email:
+            r = await db.execute(
+                select(User.id).where(func.lower(User.email) == str(sender_email).strip().lower())
+            )
+            uid = r.scalar_one_or_none()
+            if uid:
+                return uid
+        if department_id:
+            r = await db.execute(select(User).where(User.is_active == True))  # noqa: E712
+            return _pick_dept_leader(r.scalars().all(), department_id)
+    except Exception as e:
+        logger.warning(f"主办人解析失败（不影响建项）: {e}")
+    return None
+
+
 async def _find_matching_work_item(
     db: AsyncSession,
     subject: str,
@@ -822,6 +871,9 @@ async def _process_email(
                 if not district_id:
                     district_id = 1
 
+                # 主办人 = 本线程第一封邮件的发件人（发件人不在系统则挂部门负责人）
+                sponsor_id = await _resolve_sponsor_id(db, _extract_sender_email(from_addr), dept.id)
+
                 item = WorkItem(
                     title=analysis.get("title", subject[:100]),
                     content=analysis.get("summary", body[:500]),
@@ -839,6 +891,7 @@ async def _process_email(
                     sender_email=_extract_sender_email(from_addr),
                     email_date=datetime.utcnow(),
                     thread_id=thread_root,
+                    sponsor_id=sponsor_id,
                 )
                 db.add(item)
                 await db.flush()
