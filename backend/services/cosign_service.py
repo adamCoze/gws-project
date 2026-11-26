@@ -108,6 +108,131 @@ def parse_designated_signers(assignee_prefix: str) -> List[str]:
 
 
 # ────────────────────────────────────────────
+# 小额本地事项：签署人收敛（2026-11-26）
+# 业务规则：
+#   1) 当地公司 1000 元以内的报销/审批，区总签署即可 → 24h 后自动完成；
+#   2) 区总本人发起报销时，财务部审批即可 → 24h 后自动完成。
+# ────────────────────────────────────────────
+SMALL_AMOUNT_LIMIT = 1000.0
+LOCAL_EXPENSE_KEYWORDS = [
+    "报销", "费用", "采购", "付款", "请款", "发票", "电费", "水费",
+    "房租", "物业", "快递", "车费", "油费", "餐费", "津贴", "申请",
+]
+DISTRICT_DIRECTOR_LEVEL = 4   # 区总
+FINANCE_DEPT_ID = 2           # 财审/投资部
+# 正文里表示"已表态"的动词（用于识别「X同意/Y确认」这类已完成的批示）
+STATED_APPROVAL_VERBS = [
+    "同意", "确认", "已阅", "无异议", "無異議", "批准", "照准",
+    "已发布", "已办理", "已完成", "已通过", "已审批",
+]
+# 名字紧邻前面出现这些字，说明只是"请某人确认"，不是已经确认
+STATED_NEGATIVE_PREFIX = "请待需未不让由交"
+
+
+def extract_amount(text: str) -> Optional[float]:
+    """从标题/正文提取金额（元），取最大值"""
+    if not text:
+        return None
+    nums = []
+    for m in re.findall(
+        r'(?:¥|￥|RMB|人民币)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:元|块|RMB|HKD|港币|人民币)',
+        text,
+    ):
+        try:
+            nums.append(float(m.replace(',', '')))
+        except ValueError:
+            continue
+    return max(nums) if nums else None
+
+
+async def resolve_small_amount_signers(db, item) -> Optional[List[str]]:
+    """
+    1000 元以内的本地报销/审批 → 只需一人签署。
+    返回 None 表示不适用，保持原有签署人逻辑。
+    """
+    text = f"{item.title or ''} {item.content or ''}"
+    if not any(k in text for k in LOCAL_EXPENSE_KEYWORDS):
+        return None
+    amount = extract_amount(text)
+    if amount is None or amount > SMALL_AMOUNT_LIMIT:
+        return None
+
+    sponsor = None
+    if item.sponsor_id:
+        sponsor = await db.get(User, item.sponsor_id)
+    # 区域以发起人所在区域为准（工作项 district 偶尔按兜底规则归到香港）
+    district_id = (sponsor.district_id if sponsor and sponsor.district_id else item.district_id)
+    if not district_id:
+        return None
+
+    res = await db.execute(
+        select(User).where(
+            User.role_level == DISTRICT_DIRECTOR_LEVEL,
+            User.district_id == district_id,
+            User.is_active == True,
+        )
+    )
+    directors = [u for u in res.scalars().all() if u.email_prefix]
+    sponsor_prefix = (sponsor.email_prefix or "").lower() if sponsor and sponsor.email_prefix else ""
+
+    if directors and sponsor_prefix and sponsor_prefix in [(d.email_prefix or "").lower() for d in directors]:
+        # 区总本人发起 → 财务审批即可
+        res = await db.execute(
+            select(User).where(
+                User.department_id == FINANCE_DEPT_ID,
+                User.district_id == district_id,
+                User.is_active == True,
+            )
+        )
+        cands = [
+            u for u in res.scalars().all()
+            if u.email_prefix and (u.email_prefix or "").lower() != sponsor_prefix
+        ]
+        if not cands:
+            return None
+        cands.sort(key=lambda u: (u.role_level or 0), reverse=True)
+        for u in cands:                       # 正文提到谁就优先谁（如「杨惠琪同意」）
+            if u.real_name and u.real_name in text:
+                return [u.email_prefix.lower()]
+        return [cands[0].email_prefix.lower()]
+
+    if directors:
+        for d in directors:                   # 正文提到哪位区总就优先哪位
+            if d.real_name and d.real_name in text:
+                return [d.email_prefix.lower()]
+        return [directors[0].email_prefix.lower()]
+    return None
+
+
+async def detect_stated_approvals(db, signers: List[str], body: str) -> List[str]:
+    """
+    识别正文里已经写明「X同意 / X确认 / X已阅」的签署人。
+    这类项常常是"批复那封邮件才第一次被抓到"，回复邮件并不存在，靠关键词漏判会永远卡住。
+    """
+    if not body or not signers:
+        return []
+    signer_set = {s.lower() for s in signers}
+    res = await db.execute(select(User).where(User.is_active == True))
+    found: List[str] = []
+    for u in res.scalars().all():
+        if not u.real_name or not u.email_prefix:
+            continue
+        prefix = u.email_prefix.lower()
+        if prefix not in signer_set or prefix in found:
+            continue
+        for m in re.finditer(re.escape(u.real_name), body):
+            tail = body[m.end(): m.end() + 10]
+            if not any(v in tail for v in STATED_APPROVAL_VERBS):
+                continue
+            prev_ch = body[m.start() - 1] if m.start() > 0 else ""
+            if prev_ch and prev_ch in STATED_NEGATIVE_PREFIX:
+                continue                      # 「请杨惠琪确认」不算已确认
+            found.append(prefix)
+            break
+    return found
+
+
+# ────────────────────────────────────────────
 # AI 分析会签回复
 # ────────────────────────────────────────────
 
@@ -255,6 +380,13 @@ async def initialize_cosign_tracking(work_item_id: int, sender_prefix: str = "",
             return
 
         signers = parse_designated_signers(item.assignee_email_prefix or "")
+
+        # 规则一：1000 元以内的本地报销/审批 → 只需区总（或财务，区总本人发起时）一人签署
+        _small = await resolve_small_amount_signers(db, item)
+        if _small:
+            logger.info(f"会签 #{work_item_id} 属小额本地事项，签署人收敛 {signers} → {_small}")
+            signers = _small
+
         requires_xiangxin = XIANGXIN_PREFIX in signers
 
         item.cosign_designated_signers = json.dumps(signers)
@@ -264,15 +396,22 @@ async def initialize_cosign_tracking(work_item_id: int, sender_prefix: str = "",
         item.cosign_auto_complete_at = None  # NULL 表示尚未计划
         item.cosign_payment_confirmed = False
 
-        # 建项邮件本身即是会签人简单批示 → 记为已签署并排定 24h
+        # 规则二：建项邮件本身已体现签署（发件人简单批示 / 正文写明「X同意」）→ 记为已签署
+        _replied: List[str] = []
         _sp = (sender_prefix or "").strip().lower()
         if _sp and _sp in signers and body:
             _res = _simple_cosign_analysis(extract_reply_text(body))
             if _res.get("is_simple_approval") and not _res.get("mentions_xiangxin"):
-                item.cosign_replied_signers = json.dumps([_sp])
-                if all(s in [_sp] for s in signers):
-                    item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
-                logger.info(f"会签 #{work_item_id} 建项邮件即签署人简单批示，记为已签署")
+                _replied.append(_sp)
+        if body:
+            for _p in await detect_stated_approvals(db, signers, body):
+                if _p not in _replied:
+                    _replied.append(_p)
+        if _replied:
+            item.cosign_replied_signers = json.dumps(_replied)
+            if all(s in _replied for s in signers):
+                item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
+            logger.info(f"会签 #{work_item_id} 建项邮件已体现签署: {_replied}")
 
         await db.commit()
         logger.info(
