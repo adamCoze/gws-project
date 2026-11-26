@@ -51,9 +51,30 @@ REPORT_KEYWORDS = [
     "每日电邮", "每日简历", "例会纪要", "例会纲要",
     "信息汇总", "工作总结", "工作汇报", "进展汇报",
     "进度汇报", "周报汇总", "月度汇总",
+    # 2026-11-26 补充：纪要/内训/总结类本质是知会件（汇报），不是会签也不是任务
+    "纪要", "会议记录", "内训", "培训总结", "培训纪要", "例会", "总结", "通报",
 ]
 # 排除关键词：如果含这些词，即使有report关键词也不强制（交给AI判断）
 REPORT_EXCLUDE_KEYWORDS = ["会签", "审批", "签批", "签署", "批复", "征求意见", "审核", "签核"]
+
+# ── 会签/审批类关键词（2026-11-26 新增）──
+# 标题含以下关键词时判定为 cosign：签署人回复「同意/无异议」后 24h 自动完成
+COSIGN_KEYWORDS = [
+    "会签", "审批", "签批", "签署", "签核", "批复", "审核", "征求意见",
+    "报销", "费用申请", "申请", "付款", "请款",
+    "资产表", "资产盘点", "资产分析", "财务报表", "财务资产表",
+]
+
+# ── 系统通知发件人（2026-11-26）──
+# 阿里邮箱团队的系统通知、退信、自动回复等不建工作项，只记邮件日志
+SYSTEM_SENDER_PATTERNS = [
+    "postmaster@", "mailer-daemon@", "no-reply@", "noreply@",
+    "do-not-reply@", "donotreply@", "mailer@",
+]
+SYSTEM_SUBJECT_KEYWORDS = [
+    "【系统通知】", "系统通知：", "退信", "自动回复",
+    "undeliverable", "delivery status notification", "mail delivery failed",
+]
 
 _monitor_task: Optional[asyncio.Task] = None
 _running = False
@@ -703,6 +724,28 @@ async def _process_email(
                 logger.info(f"邮件已处理过，跳过: {message_id}")
                 return EmailProcessResult.SUCCESS
 
+            # ── 系统通知过滤（2026-11-26）──
+            # 阿里邮箱团队的系统通知 / 退信 / 自动回复，只记邮件日志，不建工作项
+            _sender_l = (from_addr or "").lower()
+            _subj_l = subject or ""
+            if (
+                any(p in _sender_l for p in SYSTEM_SENDER_PATTERNS)
+                or any(k in _subj_l.lower() for k in SYSTEM_SUBJECT_KEYWORDS)
+            ):
+                db.add(EmailLog(
+                    message_id=message_id,
+                    subject=subject,
+                    from_addr=from_addr,
+                    received_at=datetime.utcnow(),
+                    process_result=EmailProcessResult.SUCCESS,
+                    retry_count=retry_count,
+                    error_message="系统通知，已跳过建项",
+                    work_item_id=None,
+                ))
+                await db.commit()
+                logger.info(f"系统通知跳过建项: {from_addr} | {subject[:40]}")
+                return EmailProcessResult.SUCCESS
+
             # 使用 AI 分析邮件内容
             analysis = await analyze_email_with_ai(subject, body, to_addrs, cc_addrs)
             if not analysis:
@@ -739,16 +782,21 @@ async def _process_email(
             elif isinstance(due_date_raw, datetime):
                 due_date = due_date_raw
             item_type = analysis.get("type", "task")
-            # ── report类型关键词兜底（防止AI漏识别报告/周报/汇总类邮件） ──
-            # 如果标题含明确报告类关键词，且不含会签审批类词，强制为report
-            if item_type != "cosign":
-                _norm_subj = _normalize_subject(subject)
-                _has_report_kw = any(kw in _norm_subj for kw in REPORT_KEYWORDS)
-                _has_exclude_kw = any(kw in _norm_subj for kw in REPORT_EXCLUDE_KEYWORDS)
-                if _has_report_kw and not _has_exclude_kw:
-                    if item_type != "report":
-                        logger.info(f"标题含汇报关键词，类型修正 {item_type} → report: {_norm_subj[:50]}")
-                    item_type = "report"
+            # ── 类型关键词校正（2026-11-26 重写）──
+            # 会签/审批类（报销、申请、签署、资产表…）→ cosign：签署人回复后 24h 自动完成
+            # 汇报类（周报、纪要、内训、总结…）→ report：建项即完成（知会件）
+            _norm_subj = _normalize_subject(subject)
+            _cosign_kw = [kw for kw in COSIGN_KEYWORDS if kw in _norm_subj]
+            _report_kw = [kw for kw in REPORT_KEYWORDS if kw in _norm_subj]
+            _exclude_kw = [kw for kw in REPORT_EXCLUDE_KEYWORDS if kw in _norm_subj]
+            if _cosign_kw:
+                if item_type != "cosign":
+                    logger.info(f"标题含会签/审批关键词{_cosign_kw[:2]}，类型修正 {item_type} → cosign: {_norm_subj[:50]}")
+                item_type = "cosign"
+            elif _report_kw and not _exclude_kw:
+                if item_type != "report":
+                    logger.info(f"标题含汇报关键词{_report_kw[:2]}，类型修正 {item_type} → report: {_norm_subj[:50]}")
+                item_type = "report"
             # 设置默认截止日期：cosign/report=24小时，task=7个自然日
             if not due_date:
                 if item_type in ("cosign", "report"):

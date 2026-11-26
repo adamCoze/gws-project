@@ -23,9 +23,18 @@ VINCENT_XIANG_PREFIX = "vincent.xiang"
 
 # 简单批示关键词（AI 辅助判断的 fallback）
 SIMPLE_APPROVAL_KEYWORDS = [
+    # 简体
     "无异议", "无补充意见", "同意", "已阅", "照准", "如拟",
     "已阅知", "无意见", "拟同意", "同意以上", "确认",
     "已审核，同意", "已阅，同意",
+    # 2026-11-26 补充：常见口语/变体（此前大量回复被判为"实质性回复"而漏记签署）
+    "没有异议", "没异议", "无异议。", "没有意见", "没意见", "无修改意见",
+    "无补充", "没有补充", "无修改", "没有修改意见", "我无补充",
+    "同意报销", "同意支付", "同意办理", "同意执行", "同意以上意见",
+    "可以办理", "可行", "照办", "已确认", "收到，同意", "收到同意",
+    # 繁体（香港同事常用）
+    "無異議", "無意見", "沒有異議", "沒有意見", "無補充", "無修改",
+    "擬同意", "同意以上", "已閱", "已閱知", "照準", "確認", "同意執行",
 ]
 
 # 支付确认关键词（必须带有"已完成"等前缀才算）
@@ -163,6 +172,8 @@ async def analyze_cosign_reply(subject: str, body: str) -> Dict:
                         data = json.loads(data_str)
                     except json.JSONDecodeError:
                         continue
+                    if not isinstance(data, dict):
+                        continue
                     if data.get("status") == "complete" or "conversation.message.completed" in str(data):
                         content_val = data.get("content", "")
                         if content_val.startswith("{"):
@@ -178,6 +189,15 @@ async def analyze_cosign_reply(subject: str, body: str) -> Dict:
                 content = content.strip()
 
             result = json.loads(content)
+            # AI 有时会把 JSON 再包一层字符串（"\"{...}\""），导致 'str' object has no attribute 'get'
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except Exception:
+                    result = {}
+            if not isinstance(result, dict):
+                logger.warning(f"会签回复分析返回非字典结构({type(result).__name__})，改用关键词兜底")
+                return _simple_cosign_analysis(reply_text)
             is_simple = bool(result.get("is_simple_approval", False))
             mentions = bool(result.get("mentions_xiangxin", False))
             logger.info(f"AI 分析会签回复: is_simple_approval={is_simple}, mentions_xiangxin={mentions}")
