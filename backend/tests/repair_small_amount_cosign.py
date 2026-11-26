@@ -29,6 +29,10 @@ from services.cosign_service import (  # noqa: E402
     detect_director_approval,
     parse_designated_signers,
     extract_amount,
+    update_cosign_tracking,
+    _simple_cosign_analysis,
+    extract_reply_text,
+    extract_sender_prefix,
 )
 
 
@@ -102,6 +106,27 @@ async def run(apply: bool):
             print("\n已写入数据库")
         else:
             print("\n[dry-run] 未写入")
+
+        # 回放各项的历史邮件：区总的批示、签署人的回复都会在这里被重新识别
+        replayed = 0
+        for item in items:
+            logs = (await db.execute(
+                select(EmailLog).where(EmailLog.work_item_id == item.id).order_by(EmailLog.received_at)
+            )).scalars().all()
+            for log in logs:
+                if not log.body:
+                    continue
+                prefix = extract_sender_prefix(log.from_addr or "")
+                if not prefix:
+                    continue
+                analysis = _simple_cosign_analysis(extract_reply_text(log.body))
+                if apply:
+                    await update_cosign_tracking(
+                        item.id, prefix, analysis,
+                        email_subject=log.subject or "", reply_body=log.body,
+                    )
+                replayed += 1
+        print(f"回放邮件 {replayed} 封（{'已应用' if apply else 'dry-run 跳过'}）")
     print("统计:", stat)
 
 

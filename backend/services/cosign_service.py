@@ -580,6 +580,28 @@ async def update_cosign_tracking(
         # 规则1：有指定会签人的情况
         designated = json.loads(item.cosign_designated_signers or "[]")
 
+        # 规则1补充（2026-11-26）：本地区总简单批示 → 区总点头即可定案，签署人收敛为区总一人
+        if is_simple and sender not in designated:
+            _sp = await db.get(User, item.sponsor_id) if item.sponsor_id else None
+            _did = (_sp.district_id if _sp and _sp.district_id else item.district_id)
+            if _did:
+                _is_director = (await db.execute(
+                    select(User).where(
+                        User.email_prefix == sender,
+                        User.role_level == DISTRICT_DIRECTOR_LEVEL,
+                        User.district_id == _did,
+                        User.is_active == True,
+                    )
+                )).scalars().first()
+                if _is_director:
+                    logger.info(
+                        f"会签 #{work_item_id} 区总 {sender} 已批示，签署人收敛 "
+                        f"{designated} → [{sender}]"
+                    )
+                    designated = [sender]
+                    item.cosign_designated_signers = json.dumps(designated)
+                    item.cosign_requires_xiangxin = XIANGXIN_PREFIX in designated
+
         if designated:
             if sender in designated and is_simple:
                 # 是指定会签人的简单批示 → 记录
