@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from config import settings
 from database import async_session
@@ -648,7 +648,9 @@ async def check_and_auto_complete_cosign() -> List[int]:
                 WorkItem.status != WorkItemStatus.cancelled,
                 WorkItem.cosign_auto_complete_at.isnot(None),
                 WorkItem.cosign_auto_complete_at <= now,
-                WorkItem.cosign_blocked == False,  # noqa: E712
+                # cosign_blocked 为 NULL 表示"从未评估过"，不能当成"已阻止"，
+                # 否则这类项排定了 24h 也永远不会被自动完成
+                or_(WorkItem.cosign_blocked == False, WorkItem.cosign_blocked.is_(None)),  # noqa: E712
             )
         )
         items = result.scalars().all()
