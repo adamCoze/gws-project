@@ -796,7 +796,8 @@ async def _process_email(
             if item_type == "cosign":
                 # 已判为会签的，只有「纪要/内训/例会」这类知会件才降级为汇报，
                 # 其余（哪怕标题带"报告/汇总"）保持会签，避免误伤真实审批流程
-                if _minutes_kw and not any(k in _norm_subj for k in ("会签", "审批", "签署")):
+                # 纪要类即使标题带"会签"（如"会签深圳内训总结"）也属知会件，一律降级
+                if _minutes_kw:
                     logger.info(f"标题含纪要/内训关键词{_minutes_kw[:2]}，类型修正 cosign → report: {_norm_subj[:50]}")
                     item_type = "report"
             elif _cosign_kw:
