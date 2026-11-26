@@ -232,6 +232,43 @@ async def detect_stated_approvals(db, signers: List[str], body: str) -> List[str
     return found
 
 
+async def detect_director_approval(db, item, body: str) -> Optional[str]:
+    """
+    正文/引用块里，该区域的区总已明确表态「同意/无异议」→ 返回区总邮箱前缀。
+    依据业务规则：当地公司事项，区总点头即可定案。
+    """
+    if not body:
+        return None
+    sponsor = await db.get(User, item.sponsor_id) if item.sponsor_id else None
+    district_id = (sponsor.district_id if sponsor and sponsor.district_id else item.district_id)
+    if not district_id:
+        return None
+    directors = (await db.execute(
+        select(User).where(
+            User.role_level == DISTRICT_DIRECTOR_LEVEL,
+            User.district_id == district_id,
+            User.is_active == True,
+        )
+    )).scalars().all()
+    directors = [d for d in directors if d.email_prefix and d.real_name]
+    if not directors:
+        return None
+    by_name = {d.real_name: (d.email_prefix or "").lower() for d in directors}
+    for blk in split_quoted_blocks(body):
+        m = re.search(r'发件人\s*[:：]\s*([^\n\r]{1,30})', blk)
+        if not m:
+            continue
+        name = m.group(1).strip().strip('"\'“” ')
+        prefix = by_name.get(name)
+        if not prefix:
+            continue
+        parts = re.split(r'主\s*题\s*[:：]', blk, maxsplit=1)
+        content = parts[1] if len(parts) > 1 else blk
+        if any(kw in content for kw in SIMPLE_APPROVAL_KEYWORDS):
+            return prefix
+    return None
+
+
 def split_quoted_blocks(body: str) -> List[str]:
     """按「发件人：」切分正文里的引用回复块（一封邮件常把整条往来都引用进来）"""
     if not body:
@@ -426,6 +463,12 @@ async def initialize_cosign_tracking(work_item_id: int, sender_prefix: str = "",
         if _small:
             logger.info(f"会签 #{work_item_id} 属小额本地事项，签署人收敛 {signers} → {_small}")
             signers = _small
+        elif body:
+            # 规则一补充：正文/引用块里本地区总已明确批示 → 区总点头即可定案
+            _dir = await detect_director_approval(db, item, body)
+            if _dir and _dir not in signers:
+                logger.info(f"会签 #{work_item_id} 区总 {_dir} 已在邮件中批示，签署人收敛 {signers} → [{_dir}]")
+                signers = [_dir]
 
         requires_xiangxin = XIANGXIN_PREFIX in signers
 

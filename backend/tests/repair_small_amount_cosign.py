@@ -26,6 +26,7 @@ from services.cosign_service import (  # noqa: E402
     resolve_small_amount_signers,
     detect_stated_approvals,
     detect_quoted_reply_signers,
+    detect_director_approval,
     parse_designated_signers,
     extract_amount,
 )
@@ -44,7 +45,16 @@ async def run(apply: bool):
         for item in items:
             changed = []
             signers = parse_designated_signers(item.assignee_email_prefix or "")
+            log0 = None
+            if item.message_id:
+                log0 = (await db.execute(
+                    select(EmailLog).where(EmailLog.message_id == item.message_id)
+                )).scalars().first()
             new_signers = await resolve_small_amount_signers(db, item)
+            if not new_signers and log0 and log0.body:
+                _d = await detect_director_approval(db, item, log0.body)
+                if _d and _d not in signers:
+                    new_signers = [_d]
             if new_signers and new_signers != signers:
                 changed.append(f"签署人 {signers} → {new_signers}")
                 signers = new_signers
