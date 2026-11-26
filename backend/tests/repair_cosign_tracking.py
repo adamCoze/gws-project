@@ -53,12 +53,13 @@ def analyze_item(conn, item):
 
     replied, last_at, blocked, detail = [], None, False, []
     for log in replies_of(conn, item["id"], item["message_id"]):
-        if item["message_id"] and log["message_id"] == item["message_id"]:
-            continue  # 建项那封本身不算回复
+        # 建项那封一般不算回复；但若它本身就是会签人的简单批示（工作项从批复那封才第一次抓到），
+        # 应计入签署（2026-11-26）。建项邮件不参与"提到向总即阻止"判定。
+        is_creating = bool(item["message_id"]) and log["message_id"] == item["message_id"]
         sender = extract_sender_prefix(log["from_addr"] or "")
         text = extract_reply_text(log["body"] or "")
         res = _simple_cosign_analysis(text)
-        if res.get("mentions_xiangxin"):
+        if res.get("mentions_xiangxin") and not is_creating:
             blocked = True
             detail.append(f"{sender}:提到向总→阻止")
             continue

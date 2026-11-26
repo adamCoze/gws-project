@@ -61,9 +61,12 @@ REPORT_EXCLUDE_KEYWORDS = ["会签", "审批", "签批", "签署", "批复", "�
 # 标题含以下关键词时判定为 cosign：签署人回复「同意/无异议」后 24h 自动完成
 COSIGN_KEYWORDS = [
     "会签", "审批", "签批", "签署", "签核", "批复", "审核", "征求意见",
-    "报销", "费用申请", "申请", "付款", "请款",
+    "报销", "费用申请", "付款申请", "请款单",
     "资产表", "资产盘点", "资产分析", "财务报表", "财务资产表",
 ]
+
+# 纪要/内训/例会类：即使是多人会签流程，本质也是知会件 → 强制 report
+MINUTES_KEYWORDS = ["纪要", "内训", "例会", "培训总结", "会议记录"]
 
 # ── 系统通知发件人（2026-11-26）──
 # 阿里邮箱团队的系统通知、退信、自动回复等不建工作项，只记邮件日志
@@ -789,9 +792,16 @@ async def _process_email(
             _cosign_kw = [kw for kw in COSIGN_KEYWORDS if kw in _norm_subj]
             _report_kw = [kw for kw in REPORT_KEYWORDS if kw in _norm_subj]
             _exclude_kw = [kw for kw in REPORT_EXCLUDE_KEYWORDS if kw in _norm_subj]
-            if _cosign_kw:
-                if item_type != "cosign":
-                    logger.info(f"标题含会签/审批关键词{_cosign_kw[:2]}，类型修正 {item_type} → cosign: {_norm_subj[:50]}")
+            _minutes_kw = [kw for kw in MINUTES_KEYWORDS if kw in _norm_subj]
+            if item_type == "cosign":
+                # 已判为会签的，只有「纪要/内训/例会」这类知会件才降级为汇报，
+                # 其余（哪怕标题带"报告/汇总"）保持会签，避免误伤真实审批流程
+                if _minutes_kw and not any(k in _norm_subj for k in ("会签", "审批", "签署")):
+                    logger.info(f"标题含纪要/内训关键词{_minutes_kw[:2]}，类型修正 cosign → report: {_norm_subj[:50]}")
+                    item_type = "report"
+            elif _cosign_kw:
+                # 任务误判为普通任务时，按会签/审批关键词升级
+                logger.info(f"标题含会签/审批关键词{_cosign_kw[:2]}，类型修正 {item_type} → cosign: {_norm_subj[:50]}")
                 item_type = "cosign"
             elif _report_kw and not _exclude_kw:
                 if item_type != "report":
@@ -953,7 +963,11 @@ async def _process_email(
 
                 # 如果是会签类型，初始化追踪
                 if item_type == "cosign":
-                    await initialize_cosign_tracking(work_item_id)
+                    await initialize_cosign_tracking(
+                        work_item_id,
+                        sender_prefix=extract_sender_prefix(from_addr),
+                        body=body,
+                    )
 
             # 记录邮件日志
             log = EmailLog(

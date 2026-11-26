@@ -235,10 +235,14 @@ def _simple_cosign_analysis(text: str) -> Dict:
 # 会签追踪管理
 # ────────────────────────────────────────────
 
-async def initialize_cosign_tracking(work_item_id: int):
+async def initialize_cosign_tracking(work_item_id: int, sender_prefix: str = "", body: str = ""):
     """
     初始化会签追踪。
     从 assignee_email_prefix 解析指定会签人，判断是否需要向总。
+
+    sender_prefix/body（2026-11-26 新增）：建项那封邮件本身就是会签人的简单批示时
+    （例如「回复：财务资产表 → 我无异议」这类，工作项是从批复那封才第一次被抓到），
+    直接把该会签人记为已签署，避免这类项永远等不到"后续回复"。
     """
     async with async_session() as db:
         result = await db.execute(select(WorkItem).where(WorkItem.id == work_item_id))
@@ -259,6 +263,16 @@ async def initialize_cosign_tracking(work_item_id: int):
         item.cosign_blocked = False
         item.cosign_auto_complete_at = None  # NULL 表示尚未计划
         item.cosign_payment_confirmed = False
+
+        # 建项邮件本身即是会签人简单批示 → 记为已签署并排定 24h
+        _sp = (sender_prefix or "").strip().lower()
+        if _sp and _sp in signers and body:
+            _res = _simple_cosign_analysis(extract_reply_text(body))
+            if _res.get("is_simple_approval") and not _res.get("mentions_xiangxin"):
+                item.cosign_replied_signers = json.dumps([_sp])
+                if all(s in [_sp] for s in signers):
+                    item.cosign_auto_complete_at = datetime.utcnow() + timedelta(hours=24)
+                logger.info(f"会签 #{work_item_id} 建项邮件即签署人简单批示，记为已签署")
 
         await db.commit()
         logger.info(
