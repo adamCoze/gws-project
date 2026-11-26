@@ -25,6 +25,7 @@ from models import WorkItem, WorkItemStatus, EmailLog  # noqa: E402
 from services.cosign_service import (  # noqa: E402
     resolve_small_amount_signers,
     detect_stated_approvals,
+    detect_quoted_reply_signers,
     parse_designated_signers,
     extract_amount,
 )
@@ -57,7 +58,11 @@ async def run(apply: bool):
                 )).scalars().first()
             replied = json.loads(item.cosign_replied_signers or "[]")
             if log and log.body:
-                for p in await detect_stated_approvals(db, signers, log.body):
+                found = await detect_stated_approvals(db, signers, log.body)
+                for p in await detect_quoted_reply_signers(db, signers, log.body):
+                    if p not in found:
+                        found.append(p)
+                for p in found:
                     if p not in replied:
                         replied.append(p)
                         stat["补记已签"] += 1

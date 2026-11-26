@@ -232,6 +232,46 @@ async def detect_stated_approvals(db, signers: List[str], body: str) -> List[str
     return found
 
 
+def split_quoted_blocks(body: str) -> List[str]:
+    """按「发件人：」切分正文里的引用回复块（一封邮件常把整条往来都引用进来）"""
+    if not body:
+        return []
+    marks = [m.start() for m in re.finditer(r'发件人\s*[:：]', body)]
+    blocks = []
+    for i, st in enumerate(marks):
+        end = marks[i + 1] if i + 1 < len(marks) else len(body)
+        blocks.append(body[st:end])
+    return blocks
+
+
+async def detect_quoted_reply_signers(db, signers: List[str], body: str) -> List[str]:
+    """
+    从建项邮件引用的历史回复块里，识别哪些签署人已经表过态。
+    签署人如果只回给发件人、没抄送 agent@，系统收不到那封回复；
+    但只要后续有人在同一条线上回复，历史批示就会被引用进正文，这里就能捞出来。
+    """
+    if not body or not signers:
+        return []
+    signer_set = {s.lower() for s in signers}
+    users = (await db.execute(select(User).where(User.is_active == True))).scalars().all()
+    by_name = {u.real_name: (u.email_prefix or "").lower() for u in users if u.real_name and u.email_prefix}
+    found: List[str] = []
+    for blk in split_quoted_blocks(body):
+        m = re.search(r'发件人\s*[:：]\s*([^\n\r]{1,30})', blk)
+        if not m:
+            continue
+        name = m.group(1).strip().strip('"\'“” ')
+        prefix = by_name.get(name)
+        if not prefix or prefix not in signer_set or prefix in found:
+            continue
+        # 只看「主题」之后的内容，避免把主题里的"会签/审批"误当批示
+        parts = re.split(r'主\s*题\s*[:：]', blk, maxsplit=1)
+        content = parts[1] if len(parts) > 1 else blk
+        if any(kw in content for kw in SIMPLE_APPROVAL_KEYWORDS):
+            found.append(prefix)
+    return found
+
+
 # ────────────────────────────────────────────
 # AI 分析会签回复
 # ────────────────────────────────────────────
@@ -405,6 +445,9 @@ async def initialize_cosign_tracking(work_item_id: int, sender_prefix: str = "",
                 _replied.append(_sp)
         if body:
             for _p in await detect_stated_approvals(db, signers, body):
+                if _p not in _replied:
+                    _replied.append(_p)
+            for _p in await detect_quoted_reply_signers(db, signers, body):
                 if _p not in _replied:
                     _replied.append(_p)
         if _replied:
