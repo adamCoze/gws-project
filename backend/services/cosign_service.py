@@ -392,6 +392,9 @@ async def check_and_auto_complete_cosign() -> List[int]:
         for item in items:
             old_status = item.status
             item.status = WorkItemStatus.completed
+            # 自动完成也要落完成时间（考核/月报按 completed_at 取数，缺了会漏统计）
+            if not item.completed_at:
+                item.completed_at = item.cosign_auto_complete_at or now
             item.updated_at = now
             ts = now.strftime('%Y-%m-%d %H:%M')
 
