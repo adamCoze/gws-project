@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import select  # noqa: E402
 
 from database import async_session  # noqa: E402
-from models import WorkItem, WorkItemStatus, EmailLog  # noqa: E402
+from models import WorkItem, WorkItemStatus, EmailLog, User  # noqa: E402
 from services.cosign_service import (  # noqa: E402
     resolve_small_amount_signers,
     detect_stated_approvals,
@@ -29,7 +29,8 @@ from services.cosign_service import (  # noqa: E402
     detect_director_approval,
     parse_designated_signers,
     extract_amount,
-    update_cosign_tracking,
+    XIANGXIN_PREFIX,
+    DISTRICT_DIRECTOR_LEVEL,
     _simple_cosign_analysis,
     extract_reply_text,
     extract_sender_prefix,
@@ -107,9 +108,15 @@ async def run(apply: bool):
         else:
             print("\n[dry-run] 未写入")
 
-        # 回放各项的历史邮件：区总的批示、签署人的回复都会在这里被重新识别
-        replayed = 0
+        # 规则补充：本地区总（非发起人）在往来邮件中已明确批示 → 收敛为区总一人
+        dir_changed = 0
         for item in items:
+            sponsor = await db.get(User, item.sponsor_id) if item.sponsor_id else None
+            district_id = (sponsor.district_id if sponsor and sponsor.district_id else item.district_id)
+            if not district_id:
+                continue
+            sponsor_prefix = (sponsor.email_prefix or "").lower() if sponsor else ""
+            signers = json.loads(item.cosign_designated_signers or "[]")
             logs = (await db.execute(
                 select(EmailLog).where(EmailLog.work_item_id == item.id).order_by(EmailLog.received_at)
             )).scalars().all()
@@ -117,16 +124,33 @@ async def run(apply: bool):
                 if not log.body:
                     continue
                 prefix = extract_sender_prefix(log.from_addr or "")
-                if not prefix:
+                if not prefix or prefix == sponsor_prefix:
                     continue
-                analysis = _simple_cosign_analysis(extract_reply_text(log.body))
+                if not _simple_cosign_analysis(extract_reply_text(log.body)).get("is_simple_approval"):
+                    continue
+                u = (await db.execute(
+                    select(User).where(User.email_prefix == prefix, User.is_active == True)
+                )).scalars().first()
+                if not u or u.role_level != DISTRICT_DIRECTOR_LEVEL or u.district_id != district_id:
+                    continue
+                if signers == [prefix]:
+                    break
+                print(f"#{item.id} {item.title[:34]}")
+                print(f"   区总 {u.real_name}({prefix}) 已批示 → 签署人 {signers} → [{prefix}]")
+                signers = [prefix]
+                dir_changed += 1
                 if apply:
-                    await update_cosign_tracking(
-                        item.id, prefix, analysis,
-                        email_subject=log.subject or "", reply_body=log.body,
+                    item.cosign_designated_signers = json.dumps(signers)
+                    item.cosign_replied_signers = json.dumps([prefix])
+                    item.cosign_requires_xiangxin = XIANGXIN_PREFIX in signers
+                    item.cosign_auto_complete_at = item.cosign_auto_complete_at or (
+                        datetime.utcnow() + timedelta(hours=24)
                     )
-                replayed += 1
-        print(f"回放邮件 {replayed} 封（{'已应用' if apply else 'dry-run 跳过'}）")
+                break
+        if apply and dir_changed:
+            await db.commit()
+        print(f"区总批示收敛 {dir_changed} 项（{'已应用' if apply else 'dry-run'}）")
+
     print("统计:", stat)
 
 

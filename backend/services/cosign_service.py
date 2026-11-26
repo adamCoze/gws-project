@@ -583,7 +583,10 @@ async def update_cosign_tracking(
         # 规则1补充（2026-11-26）：本地区总简单批示 → 区总点头即可定案，签署人收敛为区总一人
         if is_simple and sender not in designated:
             _sp = await db.get(User, item.sponsor_id) if item.sponsor_id else None
-            _did = (_sp.district_id if _sp and _sp.district_id else item.district_id)
+            # 发起人本人的批示不改变签署人（区总自己发起时，应由财务审批收口）
+            if _sp and (sender == (_sp.email_prefix or "").lower()):
+                _sp = None
+            _did = (_sp.district_id if _sp and _sp.district_id else item.district_id) if _sp else None
             if _did:
                 _is_director = (await db.execute(
                     select(User).where(
