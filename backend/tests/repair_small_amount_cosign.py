@@ -116,9 +116,9 @@ async def run(apply: bool):
                 auto = datetime.utcnow() + timedelta(hours=24)
                 stat["排定24h"] += 1
 
+            _amt = extract_amount(f"{item.title or ''} {item.content or ''}")
             print(f"#{item.id} {item.title[:36]}")
-            print(f"   金额={extract_amount(f'{item.title or ''} {item.content or ''}')} "
-                  f"签署人={signers} 已签={replied} blocked={item.cosign_blocked}")
+            print(f"   金额={_amt} 签署人={signers} 已签={replied} blocked={item.cosign_blocked}")
             for c in changes:
                 print(f"   - {c}")
             if apply:
