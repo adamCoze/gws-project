@@ -962,6 +962,13 @@ async def _process_email(
                 work_item_id = item.id
                 logger.info(f"成功创建工作项: {item.title} (状态: {new_status.value})")
 
+                # 主办人自动更正：正文若写明"请X协助发布/由X完成"，主办人改为实际做事的人
+                try:
+                    from services.sponsor_service import maybe_reassign_sponsor
+                    await maybe_reassign_sponsor(db, item, f"{item.title or ''} {item.content or ''}")
+                except Exception as _e:
+                    logger.warning(f"主办人自动更正失败: {_e}")
+
                 # 如果是会签类型，初始化追踪
                 if item_type == "cosign":
                     await initialize_cosign_tracking(
