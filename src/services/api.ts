@@ -163,6 +163,11 @@ export const assessmentApi = {
     const res = await api.get('/assessment/pending-items', { params });
     return res as unknown as { items: PendingAssessmentItem[]; total: number };
   },
+  // 待考核项可选完成月份（按月筛选下拉用）
+  pendingMonths: async (): Promise<{ months: { month: string; count: number }[] }> => {
+    const res = await api.get('/assessment/pending-months');
+    return res as unknown as { months: { month: string; count: number }[] };
+  },
   // 跳过规则查询（sponsorRoleIndex: 主办人本人发起时可传所选角色下标预览对应流程）
   checkSkipRule: async (workItemId: number, sponsorRoleIndex?: number | null): Promise<SkipRuleInfo> => {
     const res = await api.get(`/assessment/check-skip-rule/${workItemId}`, {

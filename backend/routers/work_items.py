@@ -21,6 +21,13 @@ from schemas import (
 from auth import get_current_user, ROLE_LEVELS
 from models import RoleType, RoleLevel
 from services.alimail_api import get_email_url
+from services.data_scope import (
+    resolve_scope,
+    scope_conditions as _scope_conditions,
+    item_in_scope as _item_in_scope,
+    delegate_district_ids,
+    is_hr_manager,
+)
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -82,72 +89,33 @@ def _effective_role_level(user: User) -> int:
 
 
 def work_item_scope(user: User) -> dict:
-    """工作项数据范围（2026-11-18 引入）
+    """工作项数据范围（2026-11-27 起与考核项统一，逻辑见 services/data_scope.py）
 
-    返回 {all: bool, dept_ids: set, district_ids: set}
-    - 全集团：管理员/总裁、L6 监察及以上、人事/商务部（负责全集团补录与状态变更）
-    - 部门：本人各角色（主+副）所属部门（L3 经理 / L5 部门总监 / L2 专员看本部门）
-    - 区域：L4 区总及以上角色所属区域
-    实际过滤时三者取并集，并额外包含「本人主办或本人负责」的工作项。
+    - 全集团：管理员/总裁、监察主任(L6)、集团总监(L7)
+    - 本区域（主办人等级 ≤ 区总）：区总(L4)、人事/商务部经理(L3)
+    - 本部门：部门总监(L5) 看本部门全部；其他部门经理(L3) 看本部门专员(L2)主办
+    - 本人：各部门专员(L2 及以下)
+    实际过滤时取并集，并额外包含「本人主办或本人负责」的工作项。
+    人事/商务部另保留全集团写权限（write_all），仅列表可见范围收窄。
     """
-    roles = [{
-        "role_level": user.role_level or 0,
-        "department_id": user.department_id,
-        "district_id": user.district_id,
-    }]
-    for sr in (user.secondary_roles or []):
-        try:
-            lv = int(sr.get("role_level") or 0)
-        except (TypeError, ValueError):
-            lv = 0
-        roles.append({
-            "role_level": lv,
-            "department_id": sr.get("department_id"),
-            "district_id": sr.get("district_id"),
-        })
-
-    level = max((r["role_level"] for r in roles), default=0)
-    role_str = user.role.value if hasattr(user.role, "value") else str(user.role)
-
-    if role_str in ("admin", "president") or level >= RoleLevel.REGULATOR:
-        return {"all": True, "dept_ids": set(), "district_ids": set()}
-
-    if any(r["department_id"] == HR_COMMERCE_DEPT_ID for r in roles):
-        return {"all": True, "dept_ids": set(), "district_ids": set()}
-
-    dept_ids = {r["department_id"] for r in roles if r["department_id"]}
-    district_ids = {
-        r["district_id"] for r in roles
-        if r["district_id"] and r["role_level"] >= RoleLevel.DISTRICT_MANAGER
+    scope = resolve_scope(user)
+    return {
+        "all": scope["all"],
+        "write_all": scope.get("write_all", False),
+        "dept_ids": scope["dept_ids"],
+        "district_ids": scope["district_ids"],
+        "clauses": scope["clauses"],
     }
-    return {"all": False, "dept_ids": dept_ids, "district_ids": district_ids}
 
 
 def scope_conditions(user: User, scope: Optional[dict] = None):
     """把数据范围转成 SQL 条件列表；全集团返回 None"""
-    scope = scope or work_item_scope(user)
-    if scope["all"]:
-        return None
-    conds = [WorkItem.sponsor_id == user.id, WorkItem.assignee_id == user.id]
-    if scope["dept_ids"]:
-        conds.append(WorkItem.department_id.in_(list(scope["dept_ids"])))
-    if scope["district_ids"]:
-        conds.append(WorkItem.district_id.in_(list(scope["district_ids"])))
-    return conds
+    return _scope_conditions(user, scope=scope, include_assignee=True)
 
 
 def in_scope(item: WorkItem, user: User, scope: Optional[dict] = None) -> bool:
     """判断单条工作项是否在用户数据范围内（用于写操作校验）"""
-    scope = scope or work_item_scope(user)
-    if scope["all"]:
-        return True
-    if item.sponsor_id == user.id or item.assignee_id == user.id:
-        return True
-    if item.department_id and item.department_id in scope["dept_ids"]:
-        return True
-    if item.district_id and item.district_id in scope["district_ids"]:
-        return True
-    return False
+    return _item_in_scope(item, user, scope=scope, include_assignee=True)
 
 
 async def resolve_district_id(db: AsyncSession, assignee_id: Optional[int],

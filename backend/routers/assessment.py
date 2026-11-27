@@ -41,6 +41,7 @@ from schemas import (
 )
 from services.assessment_service import (
     get_pending_items,
+    get_pending_months,
     initiate_assessment,
     resolve_sponsor_role,
     calculate_skip_rules,
@@ -126,6 +127,16 @@ async def list_pending_items(
         "page_size": page_size,
         "items": out_items,
     }
+
+
+@router.get("/pending-months", response_model=dict)
+async def list_pending_months(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """待考核项可选完成月份（按月筛选用）"""
+    months = await get_pending_months(db, current_user)
+    return {"months": months}
 
 
 @router.get("/check-skip-rule/{work_item_id}", response_model=SkipRuleInfoOut)

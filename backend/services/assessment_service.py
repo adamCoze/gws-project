@@ -8,6 +8,10 @@ from sqlalchemy import select, func, or_, and_, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from services.data_scope import (
+    is_hr_manager as _is_hr_manager,
+    delegate_district_ids as _delegate_district_ids,
+)
 from models import (
     Assessment,
     AssessmentStatus,
@@ -468,30 +472,15 @@ async def get_pending_items(
     subq_non = select(NonAssessmentItem.work_item_id).where(NonAssessmentItem.is_active == True)  # noqa
     query = query.where(WorkItem.id.not_in(subq_non))
 
-    # 权限过滤
-    # 工作项区域以 work_items.district_id 为准（2026-11-18 起），未分配视为香港
-    level = _get_effective_role_level(user)
-    if level >= RoleLevel.REGULATOR:
-        pass  # 全部可见
-    elif level >= RoleLevel.DEPT_DIRECTOR:
-        dept_ids = _get_department_ids_for_role(user, RoleLevel.DEPT_DIRECTOR)
-        if dept_ids:
-            query = query.where(WorkItem.department_id.in_(dept_ids))
-        else:
-            # 纯区域角色：按工作项区域过滤
-            district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
-            if district_ids:
-                query = query.where(work_item_district_condition(district_ids))
-            else:
-                query = query.where(WorkItem.sponsor_id == user.id)
-    elif level >= RoleLevel.DISTRICT_MANAGER:
-        district_ids = _get_district_ids_for_role(user, RoleLevel.DISTRICT_MANAGER)
-        if district_ids:
-            query = query.where(work_item_district_condition(district_ids))
-        else:
-            query = query.where(WorkItem.sponsor_id == user.id)
-    else:
-        query = query.where(WorkItem.sponsor_id == user.id)
+    # 权限过滤（2026-11-27 起与工作项统一，逻辑见 services/data_scope.py）
+    # 全集团：管理员/总裁、监察主任(L6)、集团总监(L7)
+    # 本区域（主办人等级 ≤ 区总）：区总(L4)、人事/商务部经理(L3)
+    # 本部门：部门总监(L5) 全部；其他部门经理(L3) 看本部门专员(L2)主办
+    # 本人：各部门专员(L2 及以下)
+    from services.data_scope import scope_conditions as _scope_conditions
+    _scope_conds = _scope_conditions(user, include_assignee=False)
+    if _scope_conds is not None:
+        query = query.where(or_(*_scope_conds))
 
     # 筛选
     if keyword:
@@ -531,6 +520,34 @@ async def get_pending_items(
     items = result.scalars().all()
 
     return total, items
+
+
+async def get_pending_months(db: AsyncSession, user: User) -> List[dict]:
+    """待考核项的可选完成月份（含当月数量，按数据范围过滤）
+
+    返回 [{"month": "2026-11", "count": 32}, ...]，按月份倒序。
+    前端「按月筛选」下拉用。
+    """
+    from services.data_scope import scope_conditions as _scope_conditions
+
+    month_col = func.strftime('%Y-%m', WorkItem.completed_at)
+    query = select(month_col.label("month"), func.count()).where(
+        WorkItem.status == WorkItemStatus.completed.value,
+        WorkItem.completed_at.isnot(None),
+    )
+    query = query.where(WorkItem.id.not_in(
+        select(Assessment.work_item_id).where(Assessment.status != AssessmentStatus.cancelled.value)
+    ))
+    query = query.where(WorkItem.id.not_in(
+        select(NonAssessmentItem.work_item_id).where(NonAssessmentItem.is_active == True)  # noqa: E712
+    ))
+    _conds = _scope_conditions(user, include_assignee=False)
+    if _conds is not None:
+        query = query.where(or_(*_conds))
+
+    query = query.group_by(month_col).order_by(month_col.desc())
+    result = await db.execute(query)
+    return [{"month": row[0], "count": row[1]} for row in result.all() if row[0]]
 
 
 # ======================================================================
@@ -602,6 +619,13 @@ async def initiate_assessment(
             wi_district_id = await get_work_item_district_id(db, work_item)
             district_ids = _get_district_ids_for_role(initiator, RoleLevel.DISTRICT_MANAGER)
             if wi_district_id not in district_ids:
+                raise ValueError("无权限发起其他区域的考核")
+        elif _is_hr_manager(initiator):
+            # 人事/商务部经理：可代本区域同事发起（不限主办人等级，2026-11-27）
+            if not work_item.sponsor_id:
+                raise ValueError("该工作项无主办人，需由所属部门总监发起考核")
+            wi_district_id = await get_work_item_district_id(db, work_item)
+            if wi_district_id not in _delegate_district_ids(initiator):
                 raise ValueError("无权限发起其他区域的考核")
         else:
             # 普通员工只能发起自己主办的

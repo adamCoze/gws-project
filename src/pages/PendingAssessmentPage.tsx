@@ -28,6 +28,8 @@ const PendingAssessmentPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [sponsorFilter, setSponsorFilter] = useState<number | undefined>(undefined);
   const [districtFilter, setDistrictFilter] = useState<number | undefined>(undefined);
+  const [monthFilter, setMonthFilter] = useState<string | undefined>(undefined);
+  const [months, setMonths] = useState<{ month: string; count: number }[]>([]);
   const [districts, setDistricts] = useState<{ id: number; name: string }[]>([]);
   const isMobile = useIsMobile();
   const [users, setUsers] = useState<{ id: number; real_name: string; username: string }[]>([]);
@@ -79,17 +81,27 @@ const PendingAssessmentPage: React.FC = () => {
   const [markRemark, setMarkRemark] = useState('');
   const [marking, setMarking] = useState(false);
 
+  const loadMonths = async () => {
+    try {
+      const res = await assessmentApi.pendingMonths();
+      setMonths(res.months || []);
+    } catch {
+      // 月份列表加载失败不阻塞列表
+    }
+  };
+
   const fetchData = async (
     p = page,
     ps = pageSize,
     kw = keyword,
     sp: number | undefined = sponsorFilter,
     dt: number | undefined = districtFilter,
+    mt: string | undefined = monthFilter,
   ) => {
     if (sp !== undefined) setSponsorFilter(sp);
     setLoading(true);
     try {
-      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined, sponsor_id: sp, district_id: dt });
+      const res = await assessmentApi.pendingItems({ page: p, page_size: ps, keyword: kw || undefined, sponsor_id: sp, district_id: dt, month: mt || undefined });
       setItems(res.items);
       setTotal(res.total);
     } catch (e: any) {
@@ -103,6 +115,7 @@ const PendingAssessmentPage: React.FC = () => {
     fetchData(1, pageSize, keyword);
     setPage(1);
     userApi.listBrief().then((u) => setUsers(u)).catch(() => { /* 忽略 */ });
+    loadMonths();
     districtApi.list().then((d) => setDistricts(d as unknown as { id: number; name: string }[])).catch(() => { /* 忽略 */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -245,7 +258,7 @@ const PendingAssessmentPage: React.FC = () => {
             placeholder="搜索工作项标题"
             allowClear
             style={{ width: isMobile ? '100%' : 280 }}
-            onSearch={(kw) => { setKeyword(kw); setPage(1); fetchData(1, pageSize, kw); }}
+            onSearch={(kw) => { setKeyword(kw); setPage(1); fetchData(1, pageSize, kw, sponsorFilter, districtFilter, monthFilter); }}
           />
           <Select
             allowClear
@@ -254,7 +267,7 @@ const PendingAssessmentPage: React.FC = () => {
             placeholder="按主办人筛选"
             style={{ width: isMobile ? '100%' : 180 }}
             value={sponsorFilter}
-            onChange={(v) => { setSponsorFilter(v); setPage(1); fetchData(1, pageSize, keyword, v); }}
+            onChange={(v) => { setSponsorFilter(v); setPage(1); fetchData(1, pageSize, keyword, v, districtFilter, monthFilter); }}
             options={users.map((u) => ({ value: u.id, label: u.real_name || u.username }))}
           />
           <Select
@@ -262,8 +275,16 @@ const PendingAssessmentPage: React.FC = () => {
             placeholder="按区域筛选"
             style={{ width: isMobile ? '100%' : 130 }}
             value={districtFilter}
-            onChange={(v) => { setDistrictFilter(v); setPage(1); fetchData(1, pageSize, keyword, sponsorFilter, v); }}
+            onChange={(v) => { setDistrictFilter(v); setPage(1); fetchData(1, pageSize, keyword, sponsorFilter, v, monthFilter); }}
             options={districts.map((d) => ({ value: d.id, label: d.name }))}
+          />
+          <Select
+            allowClear
+            placeholder="按完成月份筛选"
+            style={{ width: isMobile ? '100%' : 170 }}
+            value={monthFilter}
+            onChange={(v) => { setMonthFilter(v); setPage(1); fetchData(1, pageSize, keyword, sponsorFilter, districtFilter, v); }}
+            options={months.map((m) => ({ value: m.month, label: `${m.month}（${m.count}）` }))}
           />
           <Button style={isMobile ? { width: '100%' } : undefined} icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
